@@ -1,4 +1,6 @@
 import { Activity, CheckCircle2, Database, FilePenLine, ShieldCheck, Upload } from "lucide-react";
+import { AdminAuthGate } from "@/components/admin-auth-gate";
+import { LogoutButton } from "@/components/logout-button";
 import { auditLogSamples, fixtures, leagues, roles, teams } from "@/lib/data";
 import { permissions } from "@/lib/rbac";
 
@@ -20,6 +22,7 @@ export default function AdminPage() {
   ];
 
   return (
+    <AdminAuthGate>
     <div className="mx-auto max-w-6xl px-4 py-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
@@ -27,7 +30,10 @@ export default function AdminPage() {
           <h1 className="text-3xl font-black text-zinc-950">Admin Dashboard</h1>
           <p className="mt-2 text-zinc-600">Designed for Supabase Auth users with enforced roles and auditable data changes.</p>
         </div>
-        <button className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-[#d91f2d] px-4 text-sm font-bold text-white"><ShieldCheck size={18} /> Super Admin</button>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-[#d91f2d] px-4 text-sm font-bold text-white"><ShieldCheck size={18} /> Super Admin</div>
+          <LogoutButton />
+        </div>
       </div>
 
       <section className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -93,5 +99,6 @@ export default function AdminPage() {
         </div>
       </section>
     </div>
+    </AdminAuthGate>
   );
 }

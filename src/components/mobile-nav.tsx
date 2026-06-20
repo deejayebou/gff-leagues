@@ -1,12 +1,12 @@
 import Link from "next/link";
-import { CalendarDays, Home, ListOrdered, ShieldCheck, Trophy } from "lucide-react";
+import { CalendarDays, Home, ListOrdered, LogIn, Trophy } from "lucide-react";
 
 const links = [
   { href: "/", label: "Home", icon: Home },
   { href: "/leagues", label: "Leagues", icon: Trophy },
   { href: "/fixtures", label: "Fixtures", icon: CalendarDays },
   { href: "/standings", label: "Table", icon: ListOrdered },
-  { href: "/admin", label: "Admin", icon: ShieldCheck },
+  { href: "/login", label: "Login", icon: LogIn },
 ];
 
 export function MobileNav() {
