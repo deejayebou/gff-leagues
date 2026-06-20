@@ -1,0 +1,22 @@
+{
+  "name": "GFF Leagues Football Data Platform",
+  "short_name": "GFF Leagues",
+  "description": "Central football data platform for Gambian leagues, fixtures, results, standings, teams, and players.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#07120d",
+  "theme_color": "#0f7a3c",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icons/icon-192.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg"
+    },
+    {
+      "src": "/icons/icon-512.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    }
+  ]
+}
