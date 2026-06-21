@@ -4,7 +4,7 @@ import { LogoutButton } from "@/components/logout-button";
 import { auditLogSamples, fixtures, leagues, roles, teams } from "@/lib/data";
 import { getPrisma } from "@/lib/prisma";
 import { permissions } from "@/lib/rbac";
-import { approveFixture, rejectFixture, updateLeague, updatePlayer, updateTeam } from "./actions";
+import { approveFixture, quickCreateRecord, rejectFixture, updateLeague, updatePlayer, updateTeam } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -23,14 +23,26 @@ async function getAdminData() {
       prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 8 }),
     ]);
 
-    return { dbLeagues, dbTeams, dbPlayers, dbFixtures, dbAuditLogs };
-  } catch {
-    return { dbLeagues: [], dbTeams: [], dbPlayers: [], dbFixtures: [], dbAuditLogs: [] };
+    return { dbLeagues, dbTeams, dbPlayers, dbFixtures, dbAuditLogs, dbError: "" };
+  } catch (error) {
+    return {
+      dbLeagues: [],
+      dbTeams: [],
+      dbPlayers: [],
+      dbFixtures: [],
+      dbAuditLogs: [],
+      dbError: error instanceof Error ? error.message : "Could not connect to the database.",
+    };
   }
 }
 
-export default async function AdminPage() {
-  const { dbLeagues, dbTeams, dbPlayers, dbFixtures, dbAuditLogs } = await getAdminData();
+export default async function AdminPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ status?: string }>;
+}) {
+  const status = (await searchParams)?.status;
+  const { dbLeagues, dbTeams, dbPlayers, dbFixtures, dbAuditLogs, dbError } = await getAdminData();
   const submitted = fixtures.filter((fixture) => fixture.status === "submitted");
   const submittedDbFixtures = dbFixtures.filter((fixture) => fixture.status === "SUBMITTED");
   const modules = [
@@ -70,6 +82,21 @@ export default async function AdminPage() {
         <div className="rounded-md bg-white p-4 shadow-sm"><CheckCircle2 className="text-emerald-700" /><p className="mt-3 font-mono text-2xl font-bold">{submittedDbFixtures.length || submitted.length}</p><p className="text-sm text-zinc-600">Pending approval</p></div>
       </section>
 
+      {status ? (
+        <section className="mt-5 rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">
+          {status}
+        </section>
+      ) : null}
+
+      {dbError ? (
+        <section className="mt-5 rounded-md border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800">
+          <h2 className="font-bold">Database connection needs attention</h2>
+          <p className="mt-1">
+            The admin editor cannot load records until `DATABASE_URL` and `DIRECT_URL` are updated with the current Supabase database password.
+          </p>
+        </section>
+      ) : null}
+
       <section className="mt-6 grid gap-4 md:grid-cols-[1fr_0.9fr]">
         <div className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
           <h2 className="text-lg font-bold text-zinc-950">Result Approval Queue</h2>
@@ -98,11 +125,11 @@ export default async function AdminPage() {
 
         <div className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
           <h2 className="text-lg font-bold text-zinc-950">Quick Create</h2>
-          <div className="mt-3 grid gap-2">
-            <input className="h-12 rounded-md border border-zinc-200 px-3" placeholder="Record name" />
-            <select className="h-12 rounded-md border border-zinc-200 px-3">{modules.slice(0, 6).map((module) => <option key={module}>{module}</option>)}</select>
+          <form action={quickCreateRecord} className="mt-3 grid gap-2">
+            <input name="recordName" className="h-12 rounded-md border border-zinc-200 px-3" placeholder="Record name" />
+            <select name="recordType" className="h-12 rounded-md border border-zinc-200 px-3">{modules.slice(0, 6).map((module) => <option key={module}>{module}</option>)}</select>
             <button className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-zinc-950 px-4 text-sm font-bold text-white"><Upload size={18} /> Save draft</button>
-          </div>
+          </form>
         </div>
       </section>
 
