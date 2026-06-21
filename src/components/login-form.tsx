@@ -19,6 +19,7 @@ export function LoginForm() {
       <label className="grid gap-2 text-sm font-semibold text-zinc-800">
         Email
         <input
+          name="email"
           type="email"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
@@ -31,6 +32,7 @@ export function LoginForm() {
         Password
         <span className="flex h-12 items-center rounded-md border border-zinc-300 pr-2 focus-within:border-emerald-700">
           <input
+            name="password"
             type={showPassword ? "text" : "password"}
             value={password}
             onChange={(event) => setPassword(event.target.value)}
