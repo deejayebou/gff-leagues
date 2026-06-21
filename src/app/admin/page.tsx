@@ -4,14 +4,23 @@ import { LogoutButton } from "@/components/logout-button";
 import { auditLogSamples, fixtures, leagues, roles, teams } from "@/lib/data";
 import { getPrisma } from "@/lib/prisma";
 import { permissions } from "@/lib/rbac";
-import { approveFixture, quickCreateRecord, rejectFixture, updateLeague, updatePlayer, updateTeam } from "./actions";
+import {
+  approveFixture,
+  assignPlayerToTeam,
+  moveTeamToLeague,
+  quickCreateRecord,
+  rejectFixture,
+  updateLeague,
+  updatePlayer,
+  updateTeam,
+} from "./actions";
 
 export const dynamic = "force-dynamic";
 
 async function getAdminData() {
   try {
     const prisma = getPrisma();
-    const [dbLeagues, dbTeams, dbPlayers, dbFixtures, dbAuditLogs] = await Promise.all([
+    const [dbLeagues, dbTeams, dbPlayers, dbFixtures, dbAuditLogs, dbSeasons, dbAssignments] = await Promise.all([
       prisma.league.findMany({ orderBy: { name: "asc" }, take: 12 }),
       prisma.team.findMany({ orderBy: { name: "asc" }, take: 12 }),
       prisma.player.findMany({ orderBy: { fullName: "asc" }, take: 12 }),
@@ -21,9 +30,15 @@ async function getAdminData() {
         take: 12,
       }),
       prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 8 }),
+      prisma.season.findMany({ orderBy: { year: "desc" }, take: 12 }),
+      prisma.teamPlayer.findMany({
+        include: { player: true, team: true },
+        orderBy: { joinedAt: "desc" },
+        take: 12,
+      }),
     ]);
 
-    return { dbLeagues, dbTeams, dbPlayers, dbFixtures, dbAuditLogs, dbError: "" };
+    return { dbLeagues, dbTeams, dbPlayers, dbFixtures, dbAuditLogs, dbSeasons, dbAssignments, dbError: "" };
   } catch (error) {
     return {
       dbLeagues: [],
@@ -31,6 +46,8 @@ async function getAdminData() {
       dbPlayers: [],
       dbFixtures: [],
       dbAuditLogs: [],
+      dbSeasons: [],
+      dbAssignments: [],
       dbError: error instanceof Error ? error.message : "Could not connect to the database.",
     };
   }
@@ -42,7 +59,7 @@ export default async function AdminPage({
   searchParams?: Promise<{ status?: string }>;
 }) {
   const status = (await searchParams)?.status;
-  const { dbLeagues, dbTeams, dbPlayers, dbFixtures, dbAuditLogs, dbError } = await getAdminData();
+  const { dbLeagues, dbTeams, dbPlayers, dbFixtures, dbAuditLogs, dbSeasons, dbAssignments, dbError } = await getAdminData();
   const submitted = fixtures.filter((fixture) => fixture.status === "submitted");
   const submittedDbFixtures = dbFixtures.filter((fixture) => fixture.status === "SUBMITTED");
   const modules = [
@@ -135,6 +152,49 @@ export default async function AdminPage({
 
       <section className="mt-6 grid gap-4">
         <div className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
+          <h2 className="text-lg font-bold text-zinc-950">Assignments</h2>
+          <div className="mt-3 grid gap-4 md:grid-cols-2">
+            <form action={assignPlayerToTeam} className="grid gap-2 rounded-md bg-zinc-50 p-3">
+              <p className="font-semibold text-zinc-900">Add player to team</p>
+              <select name="playerId" className="h-11 rounded-md border border-zinc-200 px-3" required>
+                <option value="">Choose player</option>
+                {dbPlayers.map((player) => <option key={player.id} value={player.id}>{player.fullName}</option>)}
+              </select>
+              <select name="teamId" className="h-11 rounded-md border border-zinc-200 px-3" required>
+                <option value="">Choose team</option>
+                {dbTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+              </select>
+              <select name="seasonId" className="h-11 rounded-md border border-zinc-200 px-3" required>
+                <option value="">Choose season</option>
+                {dbSeasons.map((season) => <option key={season.id} value={season.id}>{season.name}</option>)}
+              </select>
+              <button className="h-11 rounded-md bg-zinc-950 px-4 text-sm font-bold text-white">Assign player</button>
+            </form>
+
+            <form action={moveTeamToLeague} className="grid gap-2 rounded-md bg-zinc-50 p-3">
+              <p className="font-semibold text-zinc-900">Move team to division</p>
+              <select name="teamId" className="h-11 rounded-md border border-zinc-200 px-3" required>
+                <option value="">Choose team</option>
+                {dbTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+              </select>
+              <select name="leagueId" className="h-11 rounded-md border border-zinc-200 px-3" required>
+                <option value="">Choose league/division</option>
+                {dbLeagues.map((league) => <option key={league.id} value={league.id}>{league.name} - {league.division}</option>)}
+              </select>
+              <button className="h-11 rounded-md bg-zinc-950 px-4 text-sm font-bold text-white">Move team</button>
+            </form>
+          </div>
+          <div className="mt-4 grid gap-2">
+            {dbAssignments.map((assignment) => (
+              <div key={assignment.id} className="rounded-md border border-zinc-100 p-3 text-sm text-zinc-700">
+                <span className="font-semibold text-zinc-950">{assignment.player.fullName}</span> is registered with {assignment.team.name}
+              </div>
+            ))}
+            {dbAssignments.length === 0 ? <p className="rounded-md bg-zinc-50 p-3 text-sm font-semibold text-zinc-600">No player-team assignments yet.</p> : null}
+          </div>
+        </div>
+
+        <div className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
           <h2 className="text-lg font-bold text-zinc-950">Edit Leagues</h2>
           <div className="mt-3 grid gap-3">
             {dbLeagues.map((league) => (
@@ -203,9 +263,17 @@ export default async function AdminPage({
         <div className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
           <h2 className="text-lg font-bold text-zinc-950">Audit Logs</h2>
           <div className="mt-3 grid gap-2">
-            {(dbAuditLogs.length ? dbAuditLogs.map((log) => `${log.action} ${log.entity}`) : auditLogSamples).map((item) => (
-              <div key={item} className="rounded-md border border-zinc-100 p-3 text-sm text-zinc-700">{item}</div>
-            ))}
+            {dbAuditLogs.length
+              ? dbAuditLogs.map((log) => (
+                  <div key={log.id} className="rounded-md border border-zinc-100 p-3 text-sm text-zinc-700">
+                    {log.action} {log.entity}
+                  </div>
+                ))
+              : auditLogSamples.map((item, index) => (
+                  <div key={`${item}-${index}`} className="rounded-md border border-zinc-100 p-3 text-sm text-zinc-700">
+                    {item}
+                  </div>
+                ))}
           </div>
         </div>
       </section>

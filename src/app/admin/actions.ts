@@ -136,6 +136,85 @@ export async function quickCreateRecord(formData: FormData) {
   done(`Saved draft: ${name}`);
 }
 
+export async function assignPlayerToTeam(formData: FormData) {
+  const prisma = getPrisma();
+  const playerId = value(formData, "playerId");
+  const teamId = value(formData, "teamId");
+  const seasonId = value(formData, "seasonId");
+
+  if (!playerId || !teamId || !seasonId) {
+    redirect("/admin?status=Choose%20a%20player%2C%20team%2C%20and%20season");
+  }
+
+  const assignment = await prisma.teamPlayer.upsert({
+    where: {
+      teamId_playerId_seasonId: {
+        teamId,
+        playerId,
+        seasonId,
+      },
+    },
+    update: { leftAt: null },
+    create: {
+      teamId,
+      playerId,
+      seasonId,
+    },
+    include: {
+      player: true,
+      team: true,
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      action: "ASSIGN_PLAYER",
+      entity: "TeamPlayer",
+      entityId: assignment.id,
+      metadata: {
+        player: assignment.player.fullName,
+        team: assignment.team.name,
+      },
+    },
+  });
+
+  done(`Assigned ${assignment.player.fullName} to ${assignment.team.name}`);
+}
+
+export async function moveTeamToLeague(formData: FormData) {
+  const prisma = getPrisma();
+  const teamId = value(formData, "teamId");
+  const leagueId = value(formData, "leagueId");
+
+  if (!teamId || !leagueId) {
+    redirect("/admin?status=Choose%20a%20team%20and%20league");
+  }
+
+  const league = await prisma.league.findUniqueOrThrow({ where: { id: leagueId } });
+  const team = await prisma.team.update({
+    where: { id: teamId },
+    data: {
+      leagueId,
+      division: league.division,
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      action: "MOVE_TEAM",
+      entity: "Team",
+      entityId: team.id,
+      metadata: {
+        team: team.name,
+        league: league.name,
+        division: league.division,
+      },
+    },
+  });
+
+  done(`Moved ${team.name} to ${league.division}`);
+}
+
 export async function updateLeague(formData: FormData) {
   const prisma = getPrisma();
   const id = value(formData, "id");
