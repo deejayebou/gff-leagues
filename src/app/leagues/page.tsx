@@ -1,8 +1,12 @@
 import Link from "next/link";
 import { Trophy } from "lucide-react";
-import { leagues, teams } from "@/lib/data";
+import { getPublicLeagues } from "@/lib/public-data";
 
-export default function LeaguesPage() {
+export const dynamic = "force-dynamic";
+
+export default async function LeaguesPage() {
+  const leagues = await getPublicLeagues();
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
       <h1 className="text-3xl font-black text-zinc-950">Leagues</h1>
@@ -16,7 +20,7 @@ export default function LeaguesPage() {
                 <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#d91f2d]">{league.division}</p>
                 <h2 className="mt-1 text-lg font-bold text-zinc-950">{league.name}</h2>
                 <p className="mt-2 text-sm leading-6 text-zinc-600">{league.description}</p>
-                <p className="mt-3 text-sm font-semibold text-zinc-800">{teams.filter((team) => team.leagueSlug === league.slug).length} teams · {league.season}</p>
+                <p className="mt-3 text-sm font-semibold text-zinc-800">{league.teamsCount} teams · {league.season}</p>
               </div>
             </div>
           </Link>

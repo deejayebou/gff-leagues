@@ -4,12 +4,12 @@ import { MatchCard } from "@/components/match-card";
 import { PlayerCard } from "@/components/player-card";
 import { Section } from "@/components/section";
 import { StandingsTable } from "@/components/standings-table";
-import { fixtures, leagues, players, teams } from "@/lib/data";
+import { getPublicHomeData } from "@/lib/public-data";
 
-export default function Home() {
-  const upcoming = fixtures.filter((fixture) => fixture.status === "scheduled").slice(0, 3);
-  const results = fixtures.filter((fixture) => fixture.status === "approved").slice(0, 2);
-  const featured = fixtures[2];
+export const dynamic = "force-dynamic";
+
+export default async function Home() {
+  const { leagues, teams, players, upcoming, results, featured, firstStandings } = await getPublicHomeData();
 
   return (
     <div>
@@ -40,7 +40,7 @@ export default function Home() {
             <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-emerald-200">
               <TrendingUp size={18} /> Featured match
             </div>
-            <MatchCard fixture={featured} />
+            {featured ? <MatchCard fixture={featured} /> : null}
           </div>
         </div>
       </section>
@@ -61,7 +61,7 @@ export default function Home() {
         </Section>
 
         <Section title="First Division Standings" eyebrow="Auto-updated after approval" action={<Link href="/standings" className="text-sm font-bold text-emerald-700">Full table</Link>}>
-          <StandingsTable compact />
+          <StandingsTable rows={firstStandings} compact />
         </Section>
 
         <Section title="Top Scorers" action={<Link href="/leagues/first-division" className="text-sm font-bold text-emerald-700">League detail</Link>}>

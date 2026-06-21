@@ -1,8 +1,11 @@
 import { MatchCard } from "@/components/match-card";
-import { fixtures, leagues, teams } from "@/lib/data";
+import { getPublicFixtures } from "@/lib/public-data";
 
-export default function FixturesPage() {
-  const upcoming = fixtures.filter((fixture) => fixture.status === "scheduled" || fixture.status === "submitted");
+export const dynamic = "force-dynamic";
+
+export default async function FixturesPage() {
+  const { fixtures, leagues, teams } = await getPublicFixtures();
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
       <h1 className="text-3xl font-black text-zinc-950">Fixtures</h1>
@@ -12,7 +15,7 @@ export default function FixturesPage() {
         <input className="h-12 rounded-md border border-zinc-200 px-3" type="date" />
         <input className="h-12 rounded-md border border-zinc-200 px-3" placeholder="Venue" />
       </div>
-      <div className="mt-5 grid gap-3 md:grid-cols-2">{upcoming.map((fixture) => <MatchCard key={fixture.id} fixture={fixture} />)}</div>
+      <div className="mt-5 grid gap-3 md:grid-cols-2">{fixtures.map((fixture) => <MatchCard key={fixture.id} fixture={fixture} />)}</div>
     </div>
   );
 }

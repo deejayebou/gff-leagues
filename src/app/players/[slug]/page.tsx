@@ -1,20 +1,20 @@
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { age, getPlayer, getTeam, playerStats } from "@/lib/data";
+import { age, getPublicPlayer } from "@/lib/public-data";
+
+export const dynamic = "force-dynamic";
 
 export default async function PlayerProfilePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const player = getPlayer(slug);
+  const player = await getPublicPlayer(slug);
   if (!player) notFound();
-  const team = getTeam(player.teamSlug);
-  const stats = playerStats(slug);
   const statCards = [
-    ["Goals", stats?.goals ?? 0],
-    ["Assists", stats?.assists ?? 0],
-    ["Apps", stats?.appearances ?? 0],
-    ["Yellow", stats?.yellowCards ?? 0],
-    ["Red", stats?.redCards ?? 0],
+    ["Goals", player.stats.goals],
+    ["Assists", player.stats.assists],
+    ["Apps", player.stats.appearances],
+    ["Yellow", player.stats.yellowCards],
+    ["Red", player.stats.redCards],
   ];
 
   return (
@@ -25,13 +25,14 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">{player.position} · #{player.jerseyNumber}</p>
             <h1 className="mt-1 text-3xl font-black text-zinc-950">{player.fullName}</h1>
-            {team ? <Link href={`/teams/${team.slug}`} className="mt-2 inline-flex text-sm font-bold text-[#d91f2d]">{team.name}</Link> : null}
+            {player.teamSlug ? <Link href={`/teams/${player.teamSlug}`} className="mt-2 inline-flex text-sm font-bold text-[#d91f2d]">{player.teamName}</Link> : null}
           </div>
         </div>
         <div className="mt-5 grid gap-2 text-sm md:grid-cols-3">
           <p><span className="font-bold">Date of birth:</span> {player.dateOfBirth}</p>
           <p><span className="font-bold">Age:</span> {age(player.dateOfBirth)}</p>
-          <p><span className="font-bold">Division:</span> {team?.division}</p>
+          <p><span className="font-bold">Division:</span> {player.division ?? "Unassigned"}</p>
+          <p><span className="font-bold">Hometown:</span> {player.hometown ?? "To be confirmed"}</p>
         </div>
       </section>
       <section className="mt-5 grid grid-cols-2 gap-2 md:grid-cols-5">

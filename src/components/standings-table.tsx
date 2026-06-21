@@ -1,8 +1,7 @@
 import Link from "next/link";
-import { computeStandings } from "@/lib/data";
+import { type PublicStandingRow } from "@/lib/public-data";
 
-export function StandingsTable({ leagueSlug = "first-division", compact = false }: { leagueSlug?: string; compact?: boolean }) {
-  const rows = computeStandings(leagueSlug);
+export function StandingsTable({ rows, compact = false }: { rows: PublicStandingRow[]; compact?: boolean }) {
   const visibleRows = compact ? rows.slice(0, 4) : rows;
 
   return (
