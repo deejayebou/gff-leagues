@@ -29,10 +29,12 @@ import {
   createLeague,
   createNewsPost,
   createPlayer,
+  createSeason,
   createTeam,
   deleteLeague,
   deleteNewsPost,
   deletePlayer,
+  deleteSeason,
   deleteTeam,
   moveTeamToLeague,
   quickCreateRecord,
@@ -41,6 +43,7 @@ import {
   updateLeague,
   updateNewsPost,
   updatePlayer,
+  updateSeason,
   updateTeam,
   updateUserRole,
 } from "./actions";
@@ -50,6 +53,7 @@ export const dynamic = "force-dynamic";
 type AdminSection =
   | "overview"
   | "leagues"
+  | "seasons"
   | "teams"
   | "players"
   | "assignments"
@@ -92,7 +96,7 @@ async function getAdminData() {
         take: 24,
       }),
       prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 12 }),
-      prisma.season.findMany({ orderBy: { year: "desc" }, take: 24 }),
+      prisma.season.findMany({ include: { leagues: true }, orderBy: { year: "desc" }, take: 24 }),
       prisma.teamPlayer.findMany({
         include: { player: true, team: true },
         orderBy: { joinedAt: "desc" },
@@ -199,6 +203,10 @@ function formatAdminDate(value: Date) {
   }).format(value);
 }
 
+function dateInputValue(value: Date) {
+  return value.toISOString().slice(0, 10);
+}
+
 export default async function AdminPage({
   searchParams,
 }: {
@@ -207,6 +215,7 @@ export default async function AdminPage({
     section?: string;
     mode?: string;
     editLeague?: string;
+    editSeason?: string;
     editTeam?: string;
     editPlayer?: string;
     editPost?: string;
@@ -246,6 +255,7 @@ export default async function AdminPage({
   const navItems = [
     { section: "overview" as const, label: "Overview", icon: LayoutDashboard, visible: true },
     { section: "leagues" as const, label: "Leagues", icon: Trophy, visible: canManageLeagues || canManageAll },
+    { section: "seasons" as const, label: "Seasons", icon: CalendarClock, visible: canManageLeagues || canManageAll },
     { section: "teams" as const, label: "Teams", icon: ShieldCheck, visible: canManageOwnTeam || canManageAll },
     { section: "players" as const, label: "Players", icon: UsersRound, visible: canManageOwnTeam || canManageAll },
     { section: "assignments" as const, label: "Assignments", icon: ClipboardCheck, visible: canAssignPlayers || canManageLeagues || canManageAll },
@@ -263,6 +273,7 @@ export default async function AdminPage({
   const teamFilter = params?.team ?? "";
   const divisionFilter = params?.division ?? "";
   const selectedLeague = dbLeagues.find((league) => league.id === params?.editLeague);
+  const selectedSeason = dbSeasons.find((season) => season.id === params?.editSeason);
   const selectedTeam = dbTeams.find((team) => team.id === params?.editTeam);
   const selectedPlayer = dbPlayers.find((player) => player.id === params?.editPlayer);
   const selectedPost = dbNewsPosts.find((post) => post.id === params?.editPost);
@@ -431,6 +442,72 @@ export default async function AdminPage({
                   </div>
                 )}
                   {dbLeagues.length === 0 ? <EmptyState>No leagues found.</EmptyState> : null}
+              </div>
+            ) : null}
+
+            {activeSection === "seasons" ? (
+              <div className="grid gap-5">
+                <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                  <SectionTitle eyebrow="Competition calendar" title={mode === "new" || selectedSeason ? "Season Editor" : "Seasons"}>
+                    Add seasons, connect them to leagues, and mark the current operating season.
+                  </SectionTitle>
+                  <ActionLink href="/admin?section=seasons&mode=new">Add season</ActionLink>
+                </div>
+
+                {mode === "new" || selectedSeason ? (
+                  <form action={selectedSeason ? updateSeason : createSeason} className="grid gap-3 rounded-md bg-zinc-50 p-4">
+                    {selectedSeason ? <input type="hidden" name="id" value={selectedSeason.id} /> : null}
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <input name="name" defaultValue={selectedSeason?.name} className={inputClass} placeholder="Season name, e.g. 2026 Season" required />
+                      <input name="year" type="number" defaultValue={selectedSeason?.year ?? new Date().getFullYear()} className={inputClass} placeholder="Year" required />
+                      <input name="startsAt" type="date" defaultValue={selectedSeason ? dateInputValue(selectedSeason.startsAt) : `${new Date().getFullYear()}-01-01`} className={inputClass} required />
+                      <input name="endsAt" type="date" defaultValue={selectedSeason ? dateInputValue(selectedSeason.endsAt) : `${new Date().getFullYear()}-12-31`} className={inputClass} required />
+                    </div>
+                    <label className="flex items-center gap-2 text-sm font-bold">
+                      <input name="isCurrent" type="checkbox" defaultChecked={selectedSeason?.isCurrent ?? false} />
+                      Current season
+                    </label>
+                    <div className="rounded-md border border-zinc-200 bg-white p-3">
+                      <h3 className="font-black text-zinc-950">Attach leagues</h3>
+                      <div className="mt-3 grid gap-2 md:grid-cols-2">
+                        {dbLeagues.map((league) => {
+                          const checked = selectedSeason?.leagues.some((item) => item.id === league.id) ?? false;
+                          return (
+                            <label key={league.id} className="flex items-center gap-2 rounded-md bg-zinc-50 p-3 text-sm font-semibold">
+                              <input name="leagueIds" type="checkbox" value={league.id} defaultChecked={checked} />
+                              {league.name}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <Link href="/admin?section=seasons" className="inline-flex h-11 items-center rounded-md border border-zinc-200 px-4 text-sm font-bold">Cancel</Link>
+                      <button className={buttonClass}>{selectedSeason ? "Save season" : "Create season"}</button>
+                    </div>
+                  </form>
+                ) : (
+                  <div className="overflow-hidden rounded-md border border-zinc-200">
+                    {dbSeasons.map((season) => (
+                      <div key={season.id} className="grid gap-3 border-b border-zinc-100 p-4 last:border-b-0 md:grid-cols-[1fr_1fr_auto] md:items-center">
+                        <div>
+                          <p className="font-black text-zinc-950">{season.name}</p>
+                          <p className="mt-1 text-sm text-zinc-600">{dateInputValue(season.startsAt)} to {dateInputValue(season.endsAt)}</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2 text-sm">
+                          <span className="rounded-full bg-zinc-100 px-2.5 py-1 font-bold text-zinc-700">{season.year}</span>
+                          {season.isCurrent ? <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-bold text-emerald-700">Current</span> : null}
+                          <span className="rounded-full bg-zinc-100 px-2.5 py-1 font-bold text-zinc-700">{season.leagues.length} leagues</span>
+                        </div>
+                        <div className="flex gap-2">
+                          <Link href={`/admin?section=seasons&editSeason=${season.id}`} className="h-10 rounded-md border border-zinc-200 px-3 py-2 text-sm font-bold">Edit</Link>
+                          <form action={deleteSeason}><input type="hidden" name="id" value={season.id} /><DangerButton>Delete</DangerButton></form>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {dbSeasons.length === 0 ? <EmptyState>No seasons found.</EmptyState> : null}
               </div>
             ) : null}
 

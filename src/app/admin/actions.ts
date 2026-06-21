@@ -324,6 +324,88 @@ export async function deleteLeague(formData: FormData) {
   }
 }
 
+async function updateCurrentSeason(prisma: ReturnType<typeof getPrisma>, seasonId: string, isCurrent: boolean) {
+  if (!isCurrent) return;
+  await prisma.season.updateMany({
+    where: { id: { not: seasonId } },
+    data: { isCurrent: false },
+  });
+}
+
+function selectedLeagueIds(formData: FormData) {
+  return formData.getAll("leagueIds").map(String).filter(Boolean);
+}
+
+export async function createSeason(formData: FormData) {
+  await requirePermission("manage_leagues");
+  const prisma = getPrisma();
+  const name = value(formData, "name");
+  const year = numberValue(formData, "year", new Date().getFullYear());
+  const startsAt = value(formData, "startsAt");
+  const endsAt = value(formData, "endsAt");
+  const isCurrent = formData.get("isCurrent") === "on";
+  const leagueIds = selectedLeagueIds(formData);
+
+  if (!name || !startsAt || !endsAt) {
+    redirect("/admin?section=seasons&status=Season%20name%2C%20start%20date%2C%20and%20end%20date%20are%20required");
+  }
+
+  const season = await prisma.season.create({
+    data: {
+      name,
+      year,
+      startsAt: new Date(`${startsAt}T00:00:00Z`),
+      endsAt: new Date(`${endsAt}T23:59:59Z`),
+      isCurrent,
+      leagues: { connect: leagueIds.map((id) => ({ id })) },
+    },
+  });
+
+  await updateCurrentSeason(prisma, season.id, isCurrent);
+  await prisma.auditLog.create({ data: { action: "CREATE_SEASON", entity: "Season", entityId: season.id } });
+  doneIn("seasons", `Created season: ${season.name}`);
+}
+
+export async function updateSeason(formData: FormData) {
+  await requirePermission("manage_leagues");
+  const prisma = getPrisma();
+  const id = value(formData, "id");
+  const isCurrent = formData.get("isCurrent") === "on";
+  const leagueIds = selectedLeagueIds(formData);
+
+  await prisma.season.update({
+    where: { id },
+    data: {
+      name: value(formData, "name"),
+      year: numberValue(formData, "year", new Date().getFullYear()),
+      startsAt: new Date(`${value(formData, "startsAt")}T00:00:00Z`),
+      endsAt: new Date(`${value(formData, "endsAt")}T23:59:59Z`),
+      isCurrent,
+      leagues: { set: leagueIds.map((leagueId) => ({ id: leagueId })) },
+    },
+  });
+
+  await updateCurrentSeason(prisma, id, isCurrent);
+  await prisma.auditLog.create({ data: { action: "UPDATE_SEASON", entity: "Season", entityId: id } });
+  revalidatePath("/admin");
+  revalidatePath("/leagues");
+  redirect("/admin?section=seasons&status=Season%20saved");
+}
+
+export async function deleteSeason(formData: FormData) {
+  await requirePermission("manage_leagues");
+  const prisma = getPrisma();
+  const id = value(formData, "id");
+
+  try {
+    await prisma.season.delete({ where: { id } });
+    await prisma.auditLog.create({ data: { action: "DELETE_SEASON", entity: "Season", entityId: id } });
+    doneIn("seasons", "Season deleted");
+  } catch {
+    redirect("/admin?section=seasons&status=Season%20has%20fixtures%2C%20registrations%2C%20or%20standings%20attached");
+  }
+}
+
 export async function updateTeam(formData: FormData) {
   const user = await requirePermission("manage_own_team");
   const prisma = getPrisma();
