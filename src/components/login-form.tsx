@@ -1,43 +1,21 @@
 "use client";
 
 import { Eye, EyeOff, LogIn } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, useState } from "react";
-import { getSupabaseBrowserClient } from "@/lib/supabase";
+import { useSearchParams } from "next/navigation";
+import { useState } from "react";
+import { loginWithPassword } from "@/app/login/actions";
 
 export function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError("");
-    setIsSubmitting(true);
-
-    const supabase = getSupabaseBrowserClient();
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    setIsSubmitting(false);
-
-    if (signInError) {
-      setError(signInError.message);
-      return;
-    }
-
-    router.replace(searchParams.get("next") || "/admin");
-    router.refresh();
-  }
+  const error = searchParams.get("error");
+  const next = searchParams.get("next") || "/admin";
 
   return (
-    <form className="mt-5 grid gap-4" onSubmit={handleSubmit}>
+    <form className="mt-5 grid gap-4" action={loginWithPassword}>
+      <input type="hidden" name="next" value={next} />
       <label className="grid gap-2 text-sm font-semibold text-zinc-800">
         Email
         <input
@@ -73,11 +51,10 @@ export function LoginForm() {
       {error ? <p className="rounded-md bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p> : null}
       <button
         type="submit"
-        disabled={isSubmitting}
         className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-[#d91f2d] px-4 text-sm font-bold text-white disabled:opacity-70"
       >
         <LogIn size={18} />
-        {isSubmitting ? "Logging in..." : "Log in"}
+        Log in
       </button>
     </form>
   );

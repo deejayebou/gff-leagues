@@ -1,8 +1,9 @@
 "use server";
 
-import { MatchStatus } from "@prisma/client";
+import { MatchStatus, UserRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { requirePermission } from "@/lib/auth";
 import { getPrisma } from "@/lib/prisma";
 
 function value(formData: FormData, key: string) {
@@ -16,7 +17,7 @@ function slugify(input: string) {
     .replace(/(^-|-$)/g, "");
 }
 
-async function uniqueSlug(model: "league" | "team" | "player", base: string) {
+async function uniqueSlug(model: "league" | "team" | "player" | "news", base: string) {
   const prisma = getPrisma();
   const cleanBase = slugify(base) || "record";
   let slug = cleanBase;
@@ -28,7 +29,9 @@ async function uniqueSlug(model: "league" | "team" | "player", base: string) {
         ? await prisma.league.findUnique({ where: { slug } })
         : model === "team"
           ? await prisma.team.findUnique({ where: { slug } })
-          : await prisma.player.findUnique({ where: { slug } });
+          : model === "player"
+            ? await prisma.player.findUnique({ where: { slug } })
+            : await prisma.newsPost.findUnique({ where: { slug } });
 
     if (!existing) return slug;
     slug = `${cleanBase}-${index}`;
@@ -42,9 +45,19 @@ function done(message: string) {
 }
 
 export async function quickCreateRecord(formData: FormData) {
+  const recordType = value(formData, "recordType");
+  if (recordType === "Create/edit teams") {
+    await requirePermission("manage_leagues");
+  } else if (recordType === "Create/edit players") {
+    await requirePermission("manage_own_team");
+  } else if (recordType === "Create fixtures") {
+    await requirePermission("manage_fixtures");
+  } else {
+    await requirePermission("manage_leagues");
+  }
+
   const prisma = getPrisma();
   const name = value(formData, "recordName");
-  const recordType = value(formData, "recordType");
 
   if (!name) {
     redirect("/admin?status=Enter%20a%20record%20name%20first");
@@ -137,6 +150,7 @@ export async function quickCreateRecord(formData: FormData) {
 }
 
 export async function assignPlayerToTeam(formData: FormData) {
+  const user = await requirePermission("assign_players");
   const prisma = getPrisma();
   const playerId = value(formData, "playerId");
   const teamId = value(formData, "teamId");
@@ -144,6 +158,10 @@ export async function assignPlayerToTeam(formData: FormData) {
 
   if (!playerId || !teamId || !seasonId) {
     redirect("/admin?status=Choose%20a%20player%2C%20team%2C%20and%20season");
+  }
+
+  if (user.role.name === UserRole.TEAM_ADMIN && user.teamId !== teamId) {
+    redirect("/admin?status=Team%20admins%20can%20only%20assign%20players%20to%20their%20own%20team");
   }
 
   const assignment = await prisma.teamPlayer.upsert({
@@ -182,6 +200,7 @@ export async function assignPlayerToTeam(formData: FormData) {
 }
 
 export async function moveTeamToLeague(formData: FormData) {
+  await requirePermission("manage_leagues");
   const prisma = getPrisma();
   const teamId = value(formData, "teamId");
   const leagueId = value(formData, "leagueId");
@@ -216,6 +235,7 @@ export async function moveTeamToLeague(formData: FormData) {
 }
 
 export async function updateLeague(formData: FormData) {
+  await requirePermission("manage_leagues");
   const prisma = getPrisma();
   const id = value(formData, "id");
 
@@ -239,8 +259,13 @@ export async function updateLeague(formData: FormData) {
 }
 
 export async function updateTeam(formData: FormData) {
+  const user = await requirePermission("manage_own_team");
   const prisma = getPrisma();
   const id = value(formData, "id");
+
+  if (user.role.name === UserRole.TEAM_ADMIN && user.teamId !== id) {
+    redirect("/admin?status=Team%20admins%20can%20only%20edit%20their%20assigned%20team");
+  }
 
   await prisma.team.update({
     where: { id },
@@ -262,8 +287,23 @@ export async function updateTeam(formData: FormData) {
 }
 
 export async function updatePlayer(formData: FormData) {
+  const user = await requirePermission("manage_own_team");
   const prisma = getPrisma();
   const id = value(formData, "id");
+
+  if (user.role.name === UserRole.TEAM_ADMIN) {
+    const isSquadPlayer = await prisma.teamPlayer.findFirst({
+      where: {
+        playerId: id,
+        teamId: user.teamId ?? "",
+        leftAt: null,
+      },
+    });
+
+    if (!isSquadPlayer) {
+      redirect("/admin?status=Team%20admins%20can%20only%20edit%20players%20on%20their%20squad");
+    }
+  }
 
   await prisma.player.update({
     where: { id },
@@ -285,6 +325,7 @@ export async function updatePlayer(formData: FormData) {
 }
 
 export async function approveFixture(formData: FormData) {
+  await requirePermission("all");
   const prisma = getPrisma();
   const id = value(formData, "id");
 
@@ -305,6 +346,7 @@ export async function approveFixture(formData: FormData) {
 }
 
 export async function rejectFixture(formData: FormData) {
+  await requirePermission("all");
   const prisma = getPrisma();
   const id = value(formData, "id");
 
@@ -319,4 +361,60 @@ export async function rejectFixture(formData: FormData) {
 
   revalidatePath("/admin");
   redirect("/admin?status=Result%20rejected");
+}
+
+export async function updateUserRole(formData: FormData) {
+  await requirePermission("all");
+  const prisma = getPrisma();
+  const userId = value(formData, "userId");
+  const roleId = value(formData, "roleId");
+  const teamId = value(formData, "teamId") || null;
+
+  const user = await prisma.user.update({
+    where: { id: userId },
+    data: { roleId, teamId },
+    include: { role: true },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      action: "UPDATE_USER_ROLE",
+      entity: "User",
+      entityId: user.id,
+      metadata: { email: user.email, role: user.role.name },
+    },
+  });
+
+  done(`Updated role for ${user.email}`);
+}
+
+export async function createNewsPost(formData: FormData) {
+  await requirePermission("manage_news");
+  const prisma = getPrisma();
+  const title = value(formData, "title");
+  const excerpt = value(formData, "excerpt");
+  const body = value(formData, "body");
+  const leagueId = value(formData, "leagueId") || null;
+
+  if (!title || !excerpt || !body) {
+    redirect("/admin?status=News%20needs%20a%20title%2C%20excerpt%2C%20and%20body");
+  }
+
+  const post = await prisma.newsPost.create({
+    data: {
+      title,
+      slug: await uniqueSlug("news", title),
+      excerpt,
+      body,
+      leagueId,
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: { action: "CREATE_NEWS", entity: "NewsPost", entityId: post.id },
+  });
+
+  revalidatePath("/");
+  revalidatePath("/news");
+  done(`Published news: ${post.title}`);
 }

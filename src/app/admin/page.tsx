@@ -1,18 +1,20 @@
 import { Activity, CheckCircle2, Database, FilePenLine, ShieldCheck, Upload } from "lucide-react";
-import { AdminAuthGate } from "@/components/admin-auth-gate";
 import { LogoutButton } from "@/components/logout-button";
+import { can, requireAppUser, roleLabels, rolePermissions } from "@/lib/auth";
 import { auditLogSamples, fixtures, leagues, roles, teams } from "@/lib/data";
 import { getPrisma } from "@/lib/prisma";
 import { permissions } from "@/lib/rbac";
 import {
   approveFixture,
   assignPlayerToTeam,
+  createNewsPost,
   moveTeamToLeague,
   quickCreateRecord,
   rejectFixture,
   updateLeague,
   updatePlayer,
   updateTeam,
+  updateUserRole,
 } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +22,18 @@ export const dynamic = "force-dynamic";
 async function getAdminData() {
   try {
     const prisma = getPrisma();
-    const [dbLeagues, dbTeams, dbPlayers, dbFixtures, dbAuditLogs, dbSeasons, dbAssignments] = await Promise.all([
+    const [
+      dbLeagues,
+      dbTeams,
+      dbPlayers,
+      dbFixtures,
+      dbAuditLogs,
+      dbSeasons,
+      dbAssignments,
+      dbUsers,
+      dbRoles,
+      dbNewsPosts,
+    ] = await Promise.all([
       prisma.league.findMany({ orderBy: { name: "asc" }, take: 12 }),
       prisma.team.findMany({ orderBy: { name: "asc" }, take: 12 }),
       prisma.player.findMany({ orderBy: { fullName: "asc" }, take: 12 }),
@@ -36,9 +49,32 @@ async function getAdminData() {
         orderBy: { joinedAt: "desc" },
         take: 12,
       }),
+      prisma.user.findMany({
+        include: { role: true, team: true },
+        orderBy: { email: "asc" },
+        take: 24,
+      }),
+      prisma.role.findMany({ orderBy: { name: "asc" } }),
+      prisma.newsPost.findMany({
+        include: { league: true },
+        orderBy: { publishedAt: "desc" },
+        take: 8,
+      }),
     ]);
 
-    return { dbLeagues, dbTeams, dbPlayers, dbFixtures, dbAuditLogs, dbSeasons, dbAssignments, dbError: "" };
+    return {
+      dbLeagues,
+      dbTeams,
+      dbPlayers,
+      dbFixtures,
+      dbAuditLogs,
+      dbSeasons,
+      dbAssignments,
+      dbUsers,
+      dbRoles,
+      dbNewsPosts,
+      dbError: "",
+    };
   } catch (error) {
     return {
       dbLeagues: [],
@@ -48,6 +84,9 @@ async function getAdminData() {
       dbAuditLogs: [],
       dbSeasons: [],
       dbAssignments: [],
+      dbUsers: [],
+      dbRoles: [],
+      dbNewsPosts: [],
       dbError: error instanceof Error ? error.message : "Could not connect to the database.",
     };
   }
@@ -58,10 +97,29 @@ export default async function AdminPage({
 }: {
   searchParams?: Promise<{ status?: string }>;
 }) {
+  const currentUser = await requireAppUser();
   const status = (await searchParams)?.status;
-  const { dbLeagues, dbTeams, dbPlayers, dbFixtures, dbAuditLogs, dbSeasons, dbAssignments, dbError } = await getAdminData();
+  const {
+    dbLeagues,
+    dbTeams,
+    dbPlayers,
+    dbFixtures,
+    dbAuditLogs,
+    dbSeasons,
+    dbAssignments,
+    dbUsers,
+    dbRoles,
+    dbNewsPosts,
+    dbError,
+  } = await getAdminData();
   const submitted = fixtures.filter((fixture) => fixture.status === "submitted");
   const submittedDbFixtures = dbFixtures.filter((fixture) => fixture.status === "SUBMITTED");
+  const canManageAll = can(currentUser, "all");
+  const canManageLeagues = can(currentUser, "manage_leagues");
+  const canManageFixtures = can(currentUser, "manage_fixtures");
+  const canManageNews = can(currentUser, "manage_news");
+  const canManageOwnTeam = can(currentUser, "manage_own_team");
+  const canAssignPlayers = can(currentUser, "assign_players");
   const modules = [
     "Create/edit leagues",
     "Create/edit seasons",
@@ -78,19 +136,23 @@ export default async function AdminPage({
   ];
 
   return (
-    <AdminAuthGate>
     <div className="mx-auto max-w-6xl px-4 py-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">Role-based operations</p>
           <h1 className="text-3xl font-black text-zinc-950">Admin Dashboard</h1>
-          <p className="mt-2 text-zinc-600">Designed for Supabase Auth users with enforced roles and auditable data changes.</p>
+          <p className="mt-2 text-zinc-600">Signed in as {currentUser.email} with {roleLabels[currentUser.role.name]} permissions.</p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
-          <div className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-[#d91f2d] px-4 text-sm font-bold text-white"><ShieldCheck size={18} /> Super Admin</div>
+          <div className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-[#d91f2d] px-4 text-sm font-bold text-white"><ShieldCheck size={18} /> {roleLabels[currentUser.role.name]}</div>
           <LogoutButton />
         </div>
       </div>
+
+      <section className="mt-5 rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
+        <h2 className="text-lg font-bold text-zinc-950">Your Role</h2>
+        <p className="mt-2 text-sm leading-6 text-zinc-600">{rolePermissions[currentUser.role.name][0]}</p>
+      </section>
 
       <section className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
         <div className="rounded-md bg-white p-4 shadow-sm"><Database className="text-emerald-700" /><p className="mt-3 font-mono text-2xl font-bold">{dbLeagues.length || leagues.length}</p><p className="text-sm text-zinc-600">Leagues</p></div>
@@ -115,6 +177,7 @@ export default async function AdminPage({
       ) : null}
 
       <section className="mt-6 grid gap-4 md:grid-cols-[1fr_0.9fr]">
+        {canManageAll ? (
         <div className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
           <h2 className="text-lg font-bold text-zinc-950">Result Approval Queue</h2>
           <div className="mt-3 grid gap-3">
@@ -139,7 +202,14 @@ export default async function AdminPage({
             ) : null}
           </div>
         </div>
+        ) : (
+          <div className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
+            <h2 className="text-lg font-bold text-zinc-950">Result Approval Queue</h2>
+            <p className="mt-3 rounded-md bg-zinc-50 p-3 text-sm font-semibold text-zinc-600">Only Super Admins can approve or reject official results.</p>
+          </div>
+        )}
 
+        {(canManageLeagues || canManageOwnTeam || canManageFixtures) ? (
         <div className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
           <h2 className="text-lg font-bold text-zinc-950">Quick Create</h2>
           <form action={quickCreateRecord} className="mt-3 grid gap-2">
@@ -148,12 +218,39 @@ export default async function AdminPage({
             <button className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-zinc-950 px-4 text-sm font-bold text-white"><Upload size={18} /> Save draft</button>
           </form>
         </div>
+        ) : null}
       </section>
 
       <section className="mt-6 grid gap-4">
+        {(canManageNews || canManageAll) ? (
+        <div className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
+          <h2 className="text-lg font-bold text-zinc-950">League News</h2>
+          <form action={createNewsPost} className="mt-3 grid gap-2">
+            <input name="title" className="h-11 rounded-md border border-zinc-200 px-3" placeholder="News title" />
+            <input name="excerpt" className="h-11 rounded-md border border-zinc-200 px-3" placeholder="Short excerpt" />
+            <select name="leagueId" className="h-11 rounded-md border border-zinc-200 px-3">
+              <option value="">General federation news</option>
+              {dbLeagues.map((league) => <option key={league.id} value={league.id}>{league.name}</option>)}
+            </select>
+            <textarea name="body" className="min-h-32 rounded-md border border-zinc-200 p-3" placeholder="Write the news story" />
+            <button className="h-11 rounded-md bg-zinc-950 px-4 text-sm font-bold text-white">Publish news</button>
+          </form>
+          <div className="mt-4 grid gap-2">
+            {dbNewsPosts.map((post) => (
+              <div key={post.id} className="rounded-md bg-zinc-50 p-3 text-sm">
+                <p className="font-bold text-zinc-950">{post.title}</p>
+                <p className="mt-1 text-zinc-600">{post.league?.name ?? "General"} - {post.excerpt}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+        ) : null}
+
+        {(canAssignPlayers || canManageLeagues || canManageAll) ? (
         <div className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
           <h2 className="text-lg font-bold text-zinc-950">Assignments</h2>
           <div className="mt-3 grid gap-4 md:grid-cols-2">
+            {(canAssignPlayers || canManageAll) ? (
             <form action={assignPlayerToTeam} className="grid gap-2 rounded-md bg-zinc-50 p-3">
               <p className="font-semibold text-zinc-900">Add player to team</p>
               <select name="playerId" className="h-11 rounded-md border border-zinc-200 px-3" required>
@@ -170,7 +267,9 @@ export default async function AdminPage({
               </select>
               <button className="h-11 rounded-md bg-zinc-950 px-4 text-sm font-bold text-white">Assign player</button>
             </form>
+            ) : null}
 
+            {(canManageLeagues || canManageAll) ? (
             <form action={moveTeamToLeague} className="grid gap-2 rounded-md bg-zinc-50 p-3">
               <p className="font-semibold text-zinc-900">Move team to division</p>
               <select name="teamId" className="h-11 rounded-md border border-zinc-200 px-3" required>
@@ -183,6 +282,7 @@ export default async function AdminPage({
               </select>
               <button className="h-11 rounded-md bg-zinc-950 px-4 text-sm font-bold text-white">Move team</button>
             </form>
+            ) : null}
           </div>
           <div className="mt-4 grid gap-2">
             {dbAssignments.map((assignment) => (
@@ -193,7 +293,9 @@ export default async function AdminPage({
             {dbAssignments.length === 0 ? <p className="rounded-md bg-zinc-50 p-3 text-sm font-semibold text-zinc-600">No player-team assignments yet.</p> : null}
           </div>
         </div>
+        ) : null}
 
+        {(canManageLeagues || canManageAll) ? (
         <div className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
           <h2 className="text-lg font-bold text-zinc-950">Edit Leagues</h2>
           <div className="mt-3 grid gap-3">
@@ -212,7 +314,9 @@ export default async function AdminPage({
             ))}
           </div>
         </div>
+        ) : null}
 
+        {(canManageOwnTeam || canManageAll) ? (
         <div className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
           <h2 className="text-lg font-bold text-zinc-950">Edit Teams</h2>
           <div className="mt-3 grid gap-3">
@@ -229,7 +333,9 @@ export default async function AdminPage({
             ))}
           </div>
         </div>
+        ) : null}
 
+        {(canManageOwnTeam || canManageAll) ? (
         <div className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
           <h2 className="text-lg font-bold text-zinc-950">Edit Players</h2>
           <div className="mt-3 grid gap-3">
@@ -246,9 +352,32 @@ export default async function AdminPage({
             ))}
           </div>
         </div>
+        ) : null}
       </section>
 
       <section className="mt-6 grid gap-4 md:grid-cols-2">
+        {canManageAll ? (
+        <div className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
+          <h2 className="text-lg font-bold text-zinc-950">Users & Roles</h2>
+          <div className="mt-3 grid gap-3">
+            {dbUsers.map((user) => (
+              <form key={user.id} action={updateUserRole} className="grid gap-2 rounded-md bg-zinc-50 p-3 md:grid-cols-[1.3fr_1fr_1fr_auto]">
+                <input type="hidden" name="userId" value={user.id} />
+                <p className="self-center text-sm font-semibold text-zinc-950">{user.email}</p>
+                <select name="roleId" defaultValue={user.roleId} className="h-11 rounded-md border border-zinc-200 px-3">
+                  {dbRoles.map((role) => <option key={role.id} value={role.id}>{roleLabels[role.name]}</option>)}
+                </select>
+                <select name="teamId" defaultValue={user.teamId ?? ""} className="h-11 rounded-md border border-zinc-200 px-3">
+                  <option value="">No team</option>
+                  {dbTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+                </select>
+                <button className="h-11 rounded-md bg-zinc-950 px-4 text-sm font-bold text-white">Save role</button>
+              </form>
+            ))}
+          </div>
+        </div>
+        ) : null}
+
         <div className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
           <h2 className="text-lg font-bold text-zinc-950">Roles & Permissions</h2>
           <div className="mt-3 grid gap-3">
@@ -285,6 +414,5 @@ export default async function AdminPage({
         </div>
       </section>
     </div>
-    </AdminAuthGate>
   );
 }

@@ -18,6 +18,7 @@ export function Header() {
           <Link href="/fixtures">Fixtures</Link>
           <Link href="/results">Results</Link>
           <Link href="/standings">Standings</Link>
+          <Link href="/news">News</Link>
           <Link href="/login">Login</Link>
           <Link href="/admin" className="rounded-md bg-white px-3 py-2 text-[#07120d]">Admin</Link>
         </nav>
