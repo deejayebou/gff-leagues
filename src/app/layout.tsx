@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Footer } from "@/components/footer";
 import { Header } from "@/components/header";
 import { MobileNav } from "@/components/mobile-nav";
 import { PwaRegister } from "@/components/pwa-register";
@@ -43,6 +44,7 @@ export default function RootLayout({
       <body className="flex min-h-full flex-col">
         <Header />
         <main className="flex-1 pb-20 md:pb-0">{children}</main>
+        <Footer />
         <MobileNav />
         <PwaRegister />
       </body>
