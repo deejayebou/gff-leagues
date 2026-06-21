@@ -76,9 +76,13 @@ function configuredAdminEmails() {
 
 export async function getCurrentAppUser() {
   const supabase = await getSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data, error } = await supabase.auth.getUser();
+
+  if (error) {
+    return null;
+  }
+
+  const user = data.user;
 
   if (!user?.email) return null;
 

@@ -14,13 +14,24 @@ export function AdminAuthGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
 
-    supabase.auth.getSession().then(({ data }) => {
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (error) {
+        setSession(null);
+        setIsLoading(false);
+        router.replace(`/login?next=${encodeURIComponent(pathname)}`);
+        return;
+      }
+
       setSession(data.session);
       setIsLoading(false);
 
       if (!data.session) {
         router.replace(`/login?next=${encodeURIComponent(pathname)}`);
       }
+    }).catch(() => {
+      setSession(null);
+      setIsLoading(false);
+      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {

@@ -753,7 +753,7 @@ export default async function AdminPage({
                       {dbTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
                     </select>
                   </div>
-                  <p className="text-xs leading-5 text-zinc-500">Requires `SUPABASE_SERVICE_ROLE_KEY` in Vercel and local `.env` to create a real login account.</p>
+                  <p className="text-xs leading-5 text-zinc-500">Creates a Supabase Auth login and attaches the selected GFF Leagues role.</p>
                   <button className={`${buttonClass} justify-self-end`}>Create user</button>
                 </form>
                 <div className="grid gap-3">
