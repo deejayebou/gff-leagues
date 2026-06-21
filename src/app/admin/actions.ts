@@ -245,6 +245,7 @@ export async function updateLeague(formData: FormData) {
       name: value(formData, "name"),
       division: value(formData, "division"),
       description: value(formData, "description"),
+      logoUrl: value(formData, "logoUrl") || "/gff-logo.jpg",
       isActive: formData.get("isActive") === "on",
     },
   });
@@ -395,6 +396,7 @@ export async function createNewsPost(formData: FormData) {
   const excerpt = value(formData, "excerpt");
   const body = value(formData, "body");
   const leagueId = value(formData, "leagueId") || null;
+  const coverImageUrl = value(formData, "coverImageUrl") || "/gff-logo.jpg";
 
   if (!title || !excerpt || !body) {
     redirect("/admin?status=News%20needs%20a%20title%2C%20excerpt%2C%20and%20body");
@@ -406,6 +408,7 @@ export async function createNewsPost(formData: FormData) {
       slug: await uniqueSlug("news", title),
       excerpt,
       body,
+      coverImageUrl,
       leagueId,
     },
   });

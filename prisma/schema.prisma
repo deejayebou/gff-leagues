@@ -58,6 +58,7 @@ model League {
   id          String      @id @default(cuid())
   name        String
   slug        String      @unique
+  logoUrl     String?
   division    String
   description String
   isActive    Boolean     @default(true)
@@ -248,6 +249,7 @@ model NewsPost {
   slug        String   @unique
   excerpt     String
   body        String
+  coverImageUrl String?
   publishedAt DateTime @default(now())
   league      League?  @relation(fields: [leagueId], references: [id])
 }
