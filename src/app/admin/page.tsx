@@ -174,6 +174,31 @@ function DangerButton({ children }: { children: React.ReactNode }) {
   return <button className="h-10 rounded-md border border-red-200 px-3 text-sm font-bold text-red-700">{children}</button>;
 }
 
+function StatusBadge({ status }: { status: string }) {
+  const styles: Record<string, string> = {
+    SCHEDULED: "bg-blue-50 text-blue-700 ring-blue-100",
+    SUBMITTED: "bg-amber-50 text-amber-800 ring-amber-100",
+    APPROVED: "bg-emerald-50 text-emerald-700 ring-emerald-100",
+    REJECTED: "bg-red-50 text-red-700 ring-red-100",
+    POSTPONED: "bg-zinc-100 text-zinc-700 ring-zinc-200",
+  };
+
+  return (
+    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black uppercase tracking-[0.08em] ring-1 ${styles[status] ?? styles.POSTPONED}`}>
+      {status.toLowerCase()}
+    </span>
+  );
+}
+
+function formatAdminDate(value: Date) {
+  return new Intl.DateTimeFormat("en-GM", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(value);
+}
+
 export default async function AdminPage({
   searchParams,
 }: {
@@ -336,10 +361,10 @@ export default async function AdminPage({
                 </SectionTitle>
 
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                  <div className="rounded-md border border-zinc-200 p-4"><Database className="text-emerald-700" /><p className="mt-3 font-mono text-3xl font-black">{dbLeagues.length || leagues.length}</p><p className="text-sm text-zinc-600">Leagues</p></div>
-                  <div className="rounded-md border border-zinc-200 p-4"><Activity className="text-emerald-700" /><p className="mt-3 font-mono text-3xl font-black">{dbTeams.length || teams.length}</p><p className="text-sm text-zinc-600">Teams</p></div>
-                  <div className="rounded-md border border-zinc-200 p-4"><FilePenLine className="text-emerald-700" /><p className="mt-3 font-mono text-3xl font-black">{dbFixtures.length || fixtures.length}</p><p className="text-sm text-zinc-600">Fixtures</p></div>
-                  <div className="rounded-md border border-zinc-200 p-4"><CheckCircle2 className="text-emerald-700" /><p className="mt-3 font-mono text-3xl font-black">{submittedDbFixtures.length || submitted.length}</p><p className="text-sm text-zinc-600">Pending approval</p></div>
+                  <Link href="/admin?section=leagues" className="rounded-md border border-zinc-200 p-4 transition hover:border-emerald-200 hover:bg-emerald-50/40"><Database className="text-emerald-700" /><p className="mt-3 font-mono text-3xl font-black">{dbLeagues.length || leagues.length}</p><p className="text-sm text-zinc-600">Leagues</p></Link>
+                  <Link href="/admin?section=teams" className="rounded-md border border-zinc-200 p-4 transition hover:border-emerald-200 hover:bg-emerald-50/40"><Activity className="text-emerald-700" /><p className="mt-3 font-mono text-3xl font-black">{dbTeams.length || teams.length}</p><p className="text-sm text-zinc-600">Teams</p></Link>
+                  <Link href="/admin?section=fixtures" className="rounded-md border border-zinc-200 p-4 transition hover:border-emerald-200 hover:bg-emerald-50/40"><FilePenLine className="text-emerald-700" /><p className="mt-3 font-mono text-3xl font-black">{dbFixtures.length || fixtures.length}</p><p className="text-sm text-zinc-600">Fixtures</p></Link>
+                  <Link href="/admin?section=results" className="rounded-md border border-zinc-200 p-4 transition hover:border-emerald-200 hover:bg-emerald-50/40"><CheckCircle2 className="text-emerald-700" /><p className="mt-3 font-mono text-3xl font-black">{submittedDbFixtures.length || submitted.length}</p><p className="text-sm text-zinc-600">Pending approval</p></Link>
                 </div>
 
                 <div className="grid gap-4 xl:grid-cols-[1fr_0.8fr]">
@@ -593,7 +618,32 @@ export default async function AdminPage({
                 <SectionTitle eyebrow="Match operations" title="Fixtures">
                   Create official fixtures with league, season, teams, venue, and kickoff time.
                 </SectionTitle>
+                <div className="overflow-hidden rounded-md border border-zinc-200">
+                  <div className="border-b border-zinc-100 bg-zinc-50 px-4 py-3">
+                    <h3 className="font-black text-zinc-950">Existing fixtures</h3>
+                    <p className="mt-1 text-sm text-zinc-600">All fixtures already in the system, including submitted and approved results.</p>
+                  </div>
+                  {dbFixtures.map((fixture) => (
+                    <div key={fixture.id} className="grid gap-3 border-b border-zinc-100 p-4 last:border-b-0 lg:grid-cols-[1.3fr_1fr_auto] lg:items-center">
+                      <div>
+                        <p className="font-black text-zinc-950">{fixture.homeTeam.name} vs {fixture.awayTeam.name}</p>
+                        <p className="mt-1 text-sm text-zinc-600">{fixture.league.name} · {fixture.venue.name} · {formatAdminDate(fixture.kickoffAt)}</p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <StatusBadge status={fixture.status} />
+                        {fixture.homeScore !== null && fixture.awayScore !== null ? (
+                          <span className="font-mono text-sm font-black text-zinc-950">{fixture.homeScore}-{fixture.awayScore}</span>
+                        ) : null}
+                      </div>
+                      <Link href="/admin?section=results" className="inline-flex h-10 items-center justify-center rounded-md border border-zinc-200 px-3 text-sm font-bold">
+                        Manage result
+                      </Link>
+                    </div>
+                  ))}
+                  {dbFixtures.length === 0 ? <EmptyState>No fixtures have been created yet.</EmptyState> : null}
+                </div>
                 <form action={createFixture} className="grid gap-3 rounded-md bg-zinc-50 p-4">
+                  <h3 className="font-black text-zinc-950">Create new fixture</h3>
                   <div className="grid gap-3 md:grid-cols-2">
                     <select name="leagueId" className={inputClass} required><option value="">League</option>{dbLeagues.map((league) => <option key={league.id} value={league.id}>{league.name}</option>)}</select>
                     <select name="seasonId" className={inputClass} required><option value="">Season</option>{dbSeasons.map((season) => <option key={season.id} value={season.id}>{season.name}</option>)}</select>
@@ -612,8 +662,33 @@ export default async function AdminPage({
                 <SectionTitle eyebrow="Result control" title="Results & Approvals">
                   Enter scores, match events, team stats, and player stats for official reporting.
                 </SectionTitle>
+                <div className="grid gap-3 rounded-md border border-amber-200 bg-amber-50 p-4">
+                  <div>
+                    <h3 className="font-black text-zinc-950">Pending approval queue</h3>
+                    <p className="mt-1 text-sm text-zinc-700">Submitted results waiting for Super Admin approval appear here first.</p>
+                  </div>
+                  {submittedDbFixtures.map((fixture) => (
+                    <div key={fixture.id} className="rounded-md bg-white p-4 shadow-sm">
+                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <p className="font-bold">{fixture.homeTeam.name} {fixture.homeScore}-{fixture.awayScore} {fixture.awayTeam.name}</p>
+                          <p className="mt-1 text-sm text-zinc-600">{fixture.league.name} · {fixture.venue.name} · {formatAdminDate(fixture.kickoffAt)}</p>
+                        </div>
+                        <StatusBadge status={fixture.status} />
+                      </div>
+                      {canManageAll ? (
+                        <div className="mt-3 flex gap-2">
+                          <form action={approveFixture}><input type="hidden" name="id" value={fixture.id} /><button className="rounded-md bg-emerald-700 px-3 py-2 text-sm font-bold text-white">Approve</button></form>
+                          <form action={rejectFixture}><input type="hidden" name="id" value={fixture.id} /><button className="rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-bold">Reject</button></form>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                  {submittedDbFixtures.length === 0 ? <EmptyState>No submitted results are waiting right now.</EmptyState> : null}
+                </div>
                 {(canSubmitResults || canManageAll) ? (
                   <form action={submitFixtureResult} className="grid gap-3 rounded-md bg-zinc-50 p-4">
+                    <h3 className="font-black text-zinc-950">Submit or update result</h3>
                     <select name="fixtureId" className={inputClass} required>
                       <option value="">Fixture</option>
                       {dbFixtures.map((fixture) => <option key={fixture.id} value={fixture.id}>{fixture.homeTeam.name} vs {fixture.awayTeam.name}</option>)}
@@ -667,21 +742,6 @@ export default async function AdminPage({
                     <button className={`${buttonClass} justify-self-end`}>Submit for approval</button>
                   </form>
                 ) : null}
-                <div className="grid gap-3">
-                  {submittedDbFixtures.map((fixture) => (
-                    <div key={fixture.id} className="rounded-md bg-zinc-50 p-4">
-                      <p className="font-bold">{fixture.homeTeam.name} {fixture.homeScore}-{fixture.awayScore} {fixture.awayTeam.name}</p>
-                      <p className="mt-1 text-sm text-zinc-600">Approving this result triggers standings recalculation and creates an audit log entry.</p>
-                      {canManageAll ? (
-                        <div className="mt-3 flex gap-2">
-                          <form action={approveFixture}><input type="hidden" name="id" value={fixture.id} /><button className="rounded-md bg-emerald-700 px-3 py-2 text-sm font-bold text-white">Approve</button></form>
-                          <form action={rejectFixture}><input type="hidden" name="id" value={fixture.id} /><button className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-bold">Reject</button></form>
-                        </div>
-                      ) : null}
-                    </div>
-                  ))}
-                  {submittedDbFixtures.length === 0 ? <EmptyState>No submitted results are waiting right now.</EmptyState> : null}
-                </div>
               </div>
             ) : null}
 
