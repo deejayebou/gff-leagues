@@ -94,6 +94,7 @@ model Team {
   logoUrl     String?
   division    String
   homeGround  String
+  city        String?
   coach       String
   leagueId    String
   league      League       @relation(fields: [leagueId], references: [id])
@@ -114,6 +115,7 @@ model Player {
   photoUrl     String?
   dateOfBirth  DateTime
   position     String
+  hometown     String?
   jerseyNumber Int
   teams        TeamPlayer[]
   events       MatchEvent[]

@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { ImageUploadField } from "@/components/image-upload-field";
 import { LogoutButton } from "@/components/logout-button";
+import { RichTextEditor } from "@/components/rich-text-editor";
 import { can, requireAppUser, roleLabels, rolePermissions } from "@/lib/auth";
 import { auditLogSamples, fixtures, leagues, roles, teams } from "@/lib/data";
 import { getPrisma } from "@/lib/prisma";
@@ -23,13 +24,22 @@ import { permissions } from "@/lib/rbac";
 import {
   approveFixture,
   assignPlayerToTeam,
+  createAdminUser,
   createFixture,
+  createLeague,
   createNewsPost,
+  createPlayer,
+  createTeam,
+  deleteLeague,
+  deleteNewsPost,
+  deletePlayer,
+  deleteTeam,
   moveTeamToLeague,
   quickCreateRecord,
   rejectFixture,
   submitFixtureResult,
   updateLeague,
+  updateNewsPost,
   updatePlayer,
   updateTeam,
   updateUserRole,
@@ -70,8 +80,12 @@ async function getAdminData() {
       dbVenues,
     ] = await Promise.all([
       prisma.league.findMany({ orderBy: { name: "asc" }, take: 24 }),
-      prisma.team.findMany({ include: { league: true }, orderBy: { name: "asc" }, take: 24 }),
-      prisma.player.findMany({ orderBy: { fullName: "asc" }, take: 24 }),
+      prisma.team.findMany({ include: { league: true, teamStats: true }, orderBy: { name: "asc" }, take: 100 }),
+      prisma.player.findMany({
+        include: { teams: { include: { team: true } }, stats: true },
+        orderBy: { fullName: "asc" },
+        take: 100,
+      }),
       prisma.fixture.findMany({
         include: { homeTeam: true, awayTeam: true, venue: true, league: true, match: true },
         orderBy: { kickoffAt: "desc" },
@@ -148,10 +162,33 @@ function EmptyState({ children }: { children: React.ReactNode }) {
   return <p className="rounded-md bg-zinc-50 p-4 text-sm font-semibold text-zinc-600">{children}</p>;
 }
 
+function ActionLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <Link href={href} className="inline-flex h-11 items-center justify-center rounded-md bg-zinc-950 px-4 text-sm font-bold text-white">
+      {children}
+    </Link>
+  );
+}
+
+function DangerButton({ children }: { children: React.ReactNode }) {
+  return <button className="h-10 rounded-md border border-red-200 px-3 text-sm font-bold text-red-700">{children}</button>;
+}
+
 export default async function AdminPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ status?: string; section?: string }>;
+  searchParams?: Promise<{
+    status?: string;
+    section?: string;
+    mode?: string;
+    editLeague?: string;
+    editTeam?: string;
+    editPlayer?: string;
+    editPost?: string;
+    q?: string;
+    team?: string;
+    division?: string;
+  }>;
 }) {
   const currentUser = await requireAppUser();
   const params = await searchParams;
@@ -196,6 +233,22 @@ export default async function AdminPage({
 
   const requestedSection = (params?.section ?? "overview") as AdminSection;
   const activeSection = navItems.some((item) => item.section === requestedSection) ? requestedSection : "overview";
+  const mode = params?.mode ?? "list";
+  const playerQuery = (params?.q ?? "").toLowerCase();
+  const teamFilter = params?.team ?? "";
+  const divisionFilter = params?.division ?? "";
+  const selectedLeague = dbLeagues.find((league) => league.id === params?.editLeague);
+  const selectedTeam = dbTeams.find((team) => team.id === params?.editTeam);
+  const selectedPlayer = dbPlayers.find((player) => player.id === params?.editPlayer);
+  const selectedPost = dbNewsPosts.find((post) => post.id === params?.editPost);
+  const filteredPlayers = dbPlayers.filter((player) => {
+    const matchesQuery = !playerQuery || player.fullName.toLowerCase().includes(playerQuery) || player.position.toLowerCase().includes(playerQuery);
+    const matchesTeam = !teamFilter || player.teams.some((assignment) => assignment.teamId === teamFilter);
+    const matchesDivision = !divisionFilter || player.teams.some((assignment) => assignment.team.division === divisionFilter);
+    return matchesQuery && matchesTeam && matchesDivision;
+  });
+  const filteredTeams = dbTeams.filter((team) => !divisionFilter || team.division === divisionFilter);
+  const divisions = Array.from(new Set(dbLeagues.map((league) => league.division).concat(dbTeams.map((team) => team.division)))).filter(Boolean).sort();
 
   const modules = [
     "Create/edit leagues",
@@ -310,76 +363,178 @@ export default async function AdminPage({
 
             {activeSection === "leagues" ? (
               <div className="grid gap-5">
-                <SectionTitle eyebrow="Competition setup" title="Leagues & Divisions">
-                  Edit league names, divisions, descriptions, status, and official images.
-                </SectionTitle>
-                <div className="grid gap-4">
-                  {dbLeagues.map((league) => (
-                    <form key={league.id} action={updateLeague} className="grid gap-3 rounded-md bg-zinc-50 p-4">
-                      <input type="hidden" name="id" value={league.id} />
-                      <div className="grid gap-3 lg:grid-cols-[1fr_1fr_2fr_auto]">
-                        <input name="name" defaultValue={league.name} className={inputClass} />
-                        <input name="division" defaultValue={league.division} className={inputClass} />
-                        <input name="description" defaultValue={league.description} className={inputClass} />
-                        <label className="flex items-center gap-2 text-sm font-bold">
-                          <input name="isActive" type="checkbox" defaultChecked={league.isActive} />
-                          Active
-                        </label>
-                      </div>
-                      <ImageUploadField name="logoUrl" label="League image" defaultValue={league.logoUrl ?? "/gff-logo.jpg"} help="Upload a league logo, badge, or competition image." />
-                      <button className={`${buttonClass} justify-self-end`}>Save league</button>
-                    </form>
-                  ))}
-                  {dbLeagues.length === 0 ? <EmptyState>No leagues found.</EmptyState> : null}
+                <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                  <SectionTitle eyebrow="Competition setup" title={mode === "new" || selectedLeague ? "League Editor" : "Leagues & Divisions"}>
+                    Manage leagues as compact records with add, edit, delete, and image controls.
+                  </SectionTitle>
+                  <ActionLink href="/admin?section=leagues&mode=new">Add league</ActionLink>
                 </div>
+
+                {mode === "new" || selectedLeague ? (
+                  <form action={selectedLeague ? updateLeague : createLeague} className="grid gap-3 rounded-md bg-zinc-50 p-4">
+                    {selectedLeague ? <input type="hidden" name="id" value={selectedLeague.id} /> : null}
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <input name="name" defaultValue={selectedLeague?.name} className={inputClass} placeholder="League name" />
+                      <input name="division" defaultValue={selectedLeague?.division} className={inputClass} placeholder="Division" />
+                      <input name="description" defaultValue={selectedLeague?.description} className={`${inputClass} md:col-span-2`} placeholder="Description" />
+                      <label className="flex items-center gap-2 text-sm font-bold">
+                        <input name="isActive" type="checkbox" defaultChecked={selectedLeague?.isActive ?? true} />
+                        Active
+                      </label>
+                    </div>
+                    <ImageUploadField name="logoUrl" label="League image" defaultValue={selectedLeague?.logoUrl ?? "/gff-logo.jpg"} help="Upload a league logo, badge, or competition image." />
+                    <div className="flex justify-end gap-2">
+                      <Link href="/admin?section=leagues" className="inline-flex h-11 items-center rounded-md border border-zinc-200 px-4 text-sm font-bold">Cancel</Link>
+                      <button className={buttonClass}>{selectedLeague ? "Save league" : "Create league"}</button>
+                    </div>
+                  </form>
+                ) : (
+                  <div className="overflow-hidden rounded-md border border-zinc-200">
+                    {dbLeagues.map((league) => (
+                      <div key={league.id} className="grid gap-3 border-b border-zinc-100 p-4 last:border-b-0 md:grid-cols-[1fr_1fr_auto] md:items-center">
+                        <div>
+                          <p className="font-black text-zinc-950">{league.name}</p>
+                          <p className="mt-1 text-sm text-zinc-600">{league.description}</p>
+                        </div>
+                        <p className="text-sm font-bold text-emerald-700">{league.division}</p>
+                        <div className="flex gap-2">
+                          <Link href={`/admin?section=leagues&editLeague=${league.id}`} className="h-10 rounded-md border border-zinc-200 px-3 py-2 text-sm font-bold">Edit</Link>
+                          <form action={deleteLeague}><input type="hidden" name="id" value={league.id} /><DangerButton>Delete</DangerButton></form>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                  {dbLeagues.length === 0 ? <EmptyState>No leagues found.</EmptyState> : null}
               </div>
             ) : null}
 
             {activeSection === "teams" ? (
               <div className="grid gap-5">
-                <SectionTitle eyebrow="Club records" title="Teams">
-                  Update team profile details and upload official team logos.
-                </SectionTitle>
-                <div className="grid gap-4">
-                  {dbTeams.map((team) => (
-                    <form key={team.id} action={updateTeam} className="grid gap-3 rounded-md bg-zinc-50 p-4">
-                      <input type="hidden" name="id" value={team.id} />
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <input name="name" defaultValue={team.name} className={inputClass} />
-                        <input name="division" defaultValue={team.division} className={inputClass} />
-                        <input name="homeGround" defaultValue={team.homeGround} className={inputClass} />
-                        <input name="coach" defaultValue={team.coach} className={inputClass} />
-                      </div>
-                      <ImageUploadField name="logoUrl" label="Team logo" defaultValue={team.logoUrl ?? "/gff-logo.jpg"} help="Upload a square club logo or paste an image URL." aspect="square" />
-                      <button className={`${buttonClass} justify-self-end`}>Save team</button>
-                    </form>
-                  ))}
-                  {dbTeams.length === 0 ? <EmptyState>No teams found.</EmptyState> : null}
+                <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                  <SectionTitle eyebrow="Club records" title={mode === "new" || selectedTeam ? "Team Editor" : "Teams"}>
+                    List teams by name, filter by division, and open an editor only when needed.
+                  </SectionTitle>
+                  <ActionLink href="/admin?section=teams&mode=new">Add team</ActionLink>
                 </div>
+
+                {mode === "new" || selectedTeam ? (
+                  <form action={selectedTeam ? updateTeam : createTeam} className="grid gap-3 rounded-md bg-zinc-50 p-4">
+                    {selectedTeam ? <input type="hidden" name="id" value={selectedTeam.id} /> : null}
+                    {!selectedTeam ? (
+                      <select name="leagueId" className={inputClass} required>
+                        <option value="">Choose league/division</option>
+                        {dbLeagues.map((league) => <option key={league.id} value={league.id}>{league.name} - {league.division}</option>)}
+                      </select>
+                    ) : null}
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <input name="name" defaultValue={selectedTeam?.name} className={inputClass} placeholder="Team name" />
+                        <input name="division" defaultValue={selectedTeam?.division} className={inputClass} placeholder="Division" />
+                        <input name="homeGround" defaultValue={selectedTeam?.homeGround} className={inputClass} placeholder="Homefield" />
+                        <input name="city" defaultValue={selectedTeam?.city ?? ""} className={inputClass} placeholder="City/town" />
+                        <input name="coach" defaultValue={selectedTeam?.coach} className={`${inputClass} md:col-span-2`} placeholder="Coach" />
+                      </div>
+                    <ImageUploadField name="logoUrl" label="Team logo" defaultValue={selectedTeam?.logoUrl ?? "/gff-logo.jpg"} help="Upload a square club logo or paste an image URL." aspect="square" />
+                    <div className="flex justify-end gap-2">
+                      <Link href="/admin?section=teams" className="inline-flex h-11 items-center rounded-md border border-zinc-200 px-4 text-sm font-bold">Cancel</Link>
+                      <button className={buttonClass}>{selectedTeam ? "Save team" : "Create team"}</button>
+                    </div>
+                  </form>
+                ) : (
+                  <>
+                    <form className="grid gap-2 rounded-md bg-zinc-50 p-3 md:grid-cols-[1fr_auto]">
+                      <input type="hidden" name="section" value="teams" />
+                      <select name="division" defaultValue={divisionFilter} className={inputClass}>
+                        <option value="">All divisions</option>
+                        {divisions.map((division) => <option key={division} value={division}>{division}</option>)}
+                      </select>
+                      <button className={buttonClass}>Filter</button>
+                    </form>
+                    <div className="overflow-hidden rounded-md border border-zinc-200">
+                      {filteredTeams.map((team) => (
+                        <div key={team.id} className="grid gap-3 border-b border-zinc-100 p-4 last:border-b-0 md:grid-cols-[1fr_1fr_auto] md:items-center">
+                          <div>
+                            <p className="font-black text-zinc-950">{team.name}</p>
+                            <p className="mt-1 text-sm text-zinc-600">{team.homeGround} {team.city ? `- ${team.city}` : ""}</p>
+                          </div>
+                          <p className="text-sm font-bold text-emerald-700">{team.division}</p>
+                          <div className="flex gap-2">
+                            <Link href={`/admin?section=teams&editTeam=${team.id}`} className="h-10 rounded-md border border-zinc-200 px-3 py-2 text-sm font-bold">Edit</Link>
+                            <form action={deleteTeam}><input type="hidden" name="id" value={team.id} /><DangerButton>Delete</DangerButton></form>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+                  {dbTeams.length === 0 ? <EmptyState>No teams found.</EmptyState> : null}
               </div>
             ) : null}
 
             {activeSection === "players" ? (
               <div className="grid gap-5">
-                <SectionTitle eyebrow="Squad management" title="Players">
-                  Maintain player profiles, squad details, jersey numbers, and player photos.
-                </SectionTitle>
-                <div className="grid gap-4">
-                  {dbPlayers.map((player) => (
-                    <form key={player.id} action={updatePlayer} className="grid gap-3 rounded-md bg-zinc-50 p-4">
-                      <input type="hidden" name="id" value={player.id} />
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <input name="fullName" defaultValue={player.fullName} className={inputClass} />
-                        <input name="position" defaultValue={player.position} className={inputClass} />
-                        <input name="jerseyNumber" type="number" defaultValue={player.jerseyNumber} className={inputClass} />
-                        <input name="dateOfBirth" type="date" defaultValue={player.dateOfBirth.toISOString().slice(0, 10)} className={inputClass} />
-                      </div>
-                      <ImageUploadField name="photoUrl" label="Player photo" defaultValue={player.photoUrl ?? "/gff-logo.jpg"} help="Upload a player headshot or paste an image URL." aspect="portrait" />
-                      <button className={`${buttonClass} justify-self-end`}>Save player</button>
-                    </form>
-                  ))}
-                  {dbPlayers.length === 0 ? <EmptyState>No players found.</EmptyState> : null}
+                <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                  <SectionTitle eyebrow="Squad management" title={mode === "new" || selectedPlayer ? "Player Editor" : "Players"}>
+                    Search players by name, team, or division, then edit the record you need.
+                  </SectionTitle>
+                  <ActionLink href="/admin?section=players&mode=new">Add player</ActionLink>
                 </div>
+
+                {mode === "new" || selectedPlayer ? (
+                  <form action={selectedPlayer ? updatePlayer : createPlayer} className="grid gap-3 rounded-md bg-zinc-50 p-4">
+                    {selectedPlayer ? <input type="hidden" name="id" value={selectedPlayer.id} /> : null}
+                    {!selectedPlayer ? (
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <select name="teamId" className={inputClass}>
+                          <option value="">Assign to team</option>
+                          {dbTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+                        </select>
+                        <select name="seasonId" className={inputClass}>
+                          <option value="">Season</option>
+                          {dbSeasons.map((season) => <option key={season.id} value={season.id}>{season.name}</option>)}
+                        </select>
+                      </div>
+                    ) : null}
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <input name="fullName" defaultValue={selectedPlayer?.fullName} className={inputClass} placeholder="Full name" />
+                        <input name="position" defaultValue={selectedPlayer?.position} className={inputClass} placeholder="Position" />
+                        <input name="hometown" defaultValue={selectedPlayer?.hometown ?? ""} className={inputClass} placeholder="Hometown" />
+                        <input name="jerseyNumber" type="number" defaultValue={selectedPlayer?.jerseyNumber ?? 0} className={inputClass} placeholder="Jersey number" />
+                        <input name="dateOfBirth" type="date" defaultValue={selectedPlayer?.dateOfBirth.toISOString().slice(0, 10) ?? "2000-01-01"} className={inputClass} />
+                      </div>
+                    <ImageUploadField name="photoUrl" label="Player photo" defaultValue={selectedPlayer?.photoUrl ?? "/gff-logo.jpg"} help="Upload a player headshot or paste an image URL." aspect="portrait" />
+                    <div className="flex justify-end gap-2">
+                      <Link href="/admin?section=players" className="inline-flex h-11 items-center rounded-md border border-zinc-200 px-4 text-sm font-bold">Cancel</Link>
+                      <button className={buttonClass}>{selectedPlayer ? "Save player" : "Create player"}</button>
+                    </div>
+                  </form>
+                ) : (
+                  <>
+                    <form className="grid gap-2 rounded-md bg-zinc-50 p-3 md:grid-cols-[1.2fr_1fr_1fr_auto]">
+                      <input type="hidden" name="section" value="players" />
+                      <input name="q" defaultValue={params?.q ?? ""} className={inputClass} placeholder="Search name or position" />
+                      <select name="team" defaultValue={teamFilter} className={inputClass}><option value="">All teams</option>{dbTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select>
+                      <select name="division" defaultValue={divisionFilter} className={inputClass}><option value="">All divisions</option>{divisions.map((division) => <option key={division} value={division}>{division}</option>)}</select>
+                      <button className={buttonClass}>Search</button>
+                    </form>
+                    <div className="overflow-hidden rounded-md border border-zinc-200">
+                      {filteredPlayers.map((player) => (
+                        <div key={player.id} className="grid gap-3 border-b border-zinc-100 p-4 last:border-b-0 md:grid-cols-[1fr_1fr_auto] md:items-center">
+                          <div>
+                            <p className="font-black text-zinc-950">{player.fullName}</p>
+                            <p className="mt-1 text-sm text-zinc-600">{player.position} {player.hometown ? `- ${player.hometown}` : ""}</p>
+                          </div>
+                          <p className="text-sm font-bold text-emerald-700">{player.teams[0]?.team.name ?? "Unassigned"}</p>
+                          <div className="flex gap-2">
+                            <Link href={`/admin?section=players&editPlayer=${player.id}`} className="h-10 rounded-md border border-zinc-200 px-3 py-2 text-sm font-bold">Edit</Link>
+                            <form action={deletePlayer}><input type="hidden" name="id" value={player.id} /><DangerButton>Delete</DangerButton></form>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {filteredPlayers.length === 0 ? <EmptyState>No players match the search.</EmptyState> : null}
+                  </>
+                )}
               </div>
             ) : null}
 
@@ -455,7 +610,7 @@ export default async function AdminPage({
             {activeSection === "results" ? (
               <div className="grid gap-5">
                 <SectionTitle eyebrow="Result control" title="Results & Approvals">
-                  Match officials submit scores and match notes. Super Admins approve official results.
+                  Enter scores, match events, team stats, and player stats for official reporting.
                 </SectionTitle>
                 {(canSubmitResults || canManageAll) ? (
                   <form action={submitFixtureResult} className="grid gap-3 rounded-md bg-zinc-50 p-4">
@@ -467,7 +622,48 @@ export default async function AdminPage({
                       <input name="homeScore" type="number" min="0" className={inputClass} placeholder="Home score" required />
                       <input name="awayScore" type="number" min="0" className={inputClass} placeholder="Away score" required />
                     </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <input name="homeCleanSheet" type="number" min="0" className={inputClass} placeholder="Home clean sheets season total" />
+                      <input name="awayCleanSheet" type="number" min="0" className={inputClass} placeholder="Away clean sheets season total" />
+                      <input name="homeForm" className={inputClass} placeholder="Home form e.g. W-D-L-W" />
+                      <input name="awayForm" className={inputClass} placeholder="Away form e.g. L-W-D-W" />
+                    </div>
                     <textarea name="notes" className={textareaClass} placeholder="Match notes, goal scorers, cards, substitutions" />
+
+                    <div className="grid gap-3 rounded-md border border-zinc-200 bg-white p-3">
+                      <h3 className="font-black text-zinc-950">Match events</h3>
+                      {Array.from({ length: 6 }).map((_, index) => (
+                        <div key={index} className="grid gap-2 md:grid-cols-[80px_1fr_1fr_1fr_1.4fr]">
+                          <input name={`eventMinute_${index}`} type="number" min="0" className={inputClass} placeholder="Min" />
+                          <select name={`eventType_${index}`} className={inputClass}>
+                            <option value="">Event</option>
+                            <option value="GOAL">Goal</option>
+                            <option value="ASSIST">Assist</option>
+                            <option value="YELLOW_CARD">Yellow card</option>
+                            <option value="RED_CARD">Red card</option>
+                            <option value="SUBSTITUTION">Substitution</option>
+                            <option value="OWN_GOAL">Own goal</option>
+                          </select>
+                          <select name={`eventTeamId_${index}`} className={inputClass}><option value="">Team</option>{dbTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select>
+                          <select name={`eventPlayerId_${index}`} className={inputClass}><option value="">Player</option>{dbPlayers.map((player) => <option key={player.id} value={player.id}>{player.fullName}</option>)}</select>
+                          <input name={`eventNote_${index}`} className={inputClass} placeholder="Note" />
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="grid gap-3 rounded-md border border-zinc-200 bg-white p-3">
+                      <h3 className="font-black text-zinc-950">Player stat updates</h3>
+                      {Array.from({ length: 8 }).map((_, index) => (
+                        <div key={index} className="grid gap-2 md:grid-cols-[1.5fr_repeat(5,90px)]">
+                          <select name={`statPlayerId_${index}`} className={inputClass}><option value="">Player</option>{dbPlayers.map((player) => <option key={player.id} value={player.id}>{player.fullName}</option>)}</select>
+                          <input name={`statAppearances_${index}`} type="number" min="0" className={inputClass} placeholder="Apps" />
+                          <input name={`statGoals_${index}`} type="number" min="0" className={inputClass} placeholder="Goals" />
+                          <input name={`statAssists_${index}`} type="number" min="0" className={inputClass} placeholder="Ast" />
+                          <input name={`statYellowCards_${index}`} type="number" min="0" className={inputClass} placeholder="YC" />
+                          <input name={`statRedCards_${index}`} type="number" min="0" className={inputClass} placeholder="RC" />
+                        </div>
+                      ))}
+                    </div>
                     <button className={`${buttonClass} justify-self-end`}>Submit for approval</button>
                   </form>
                 ) : null}
@@ -491,43 +687,75 @@ export default async function AdminPage({
 
             {activeSection === "news" ? (
               <div className="grid gap-5">
-                <SectionTitle eyebrow="Publishing desk" title="League News Editor">
-                  Create federation and league news with cover images, a focused editor, and live post history.
-                </SectionTitle>
-                <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
-                  <form action={createNewsPost} className="grid gap-3 rounded-md bg-zinc-50 p-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                  <SectionTitle eyebrow="Publishing desk" title={mode === "new" || selectedPost ? "Article Editor" : "Recent News"}>
+                    Manage news like a CMS: recent articles first, with edit, delete, and a rich text editor.
+                  </SectionTitle>
+                  <ActionLink href="/admin?section=news&mode=new">Create new article</ActionLink>
+                </div>
+
+                {mode === "new" || selectedPost ? (
+                  <form action={selectedPost ? updateNewsPost : createNewsPost} className="grid gap-3 rounded-md bg-zinc-50 p-4">
+                    {selectedPost ? <input type="hidden" name="id" value={selectedPost.id} /> : null}
                     <div className="rounded-md border border-zinc-200 bg-white p-3">
-                      <input name="title" className="h-12 w-full text-2xl font-black outline-none" placeholder="Add title" />
+                      <input name="title" defaultValue={selectedPost?.title} className="h-12 w-full text-2xl font-black outline-none" placeholder="Add title" />
                     </div>
-                    <input name="excerpt" className={inputClass} placeholder="Short excerpt" />
-                    <select name="leagueId" className={inputClass}>
+                    <input name="excerpt" defaultValue={selectedPost?.excerpt} className={inputClass} placeholder="Short excerpt" />
+                    <select name="leagueId" defaultValue={selectedPost?.leagueId ?? ""} className={inputClass}>
                       <option value="">General federation news</option>
                       {dbLeagues.map((league) => <option key={league.id} value={league.id}>{league.name}</option>)}
                     </select>
-                    <ImageUploadField name="coverImageUrl" label="Cover image" defaultValue="/gff-logo.jpg" help="Upload a story cover image or paste an image URL." />
-                    <textarea name="body" className="min-h-72 rounded-md border border-zinc-200 bg-white p-4 text-base leading-7 outline-none transition focus:border-emerald-700 focus:ring-2 focus:ring-emerald-100" placeholder="Write the full story..." />
-                    <button className={`${buttonClass} justify-self-end`}><Newspaper size={18} /> Publish news</button>
+                    <ImageUploadField name="coverImageUrl" label="Cover image" defaultValue={selectedPost?.coverImageUrl ?? "/gff-logo.jpg"} help="Upload a story cover image or paste an image URL." />
+                    <RichTextEditor name="body" defaultValue={selectedPost?.body ?? ""} />
+                    <div className="flex justify-end gap-2">
+                      <Link href="/admin?section=news" className="inline-flex h-11 items-center rounded-md border border-zinc-200 px-4 text-sm font-bold">Cancel</Link>
+                      <button className={buttonClass}><Newspaper size={18} /> {selectedPost ? "Update article" : "Publish news"}</button>
+                    </div>
                   </form>
-                  <div className="grid content-start gap-3 rounded-md bg-zinc-50 p-4">
-                    <h3 className="font-black text-zinc-950">Recent posts</h3>
+                ) : (
+                  <div className="overflow-hidden rounded-md border border-zinc-200">
                     {dbNewsPosts.map((post) => (
-                      <Link key={post.id} href={`/news/${post.slug}`} className="rounded-md border border-zinc-200 bg-white p-3 text-sm hover:border-emerald-700">
-                        <p className="font-bold text-zinc-950">{post.title}</p>
-                        <p className="mt-1 text-xs font-bold uppercase tracking-[0.14em] text-[#d91f2d]">{post.league?.name ?? "General"}</p>
-                        <p className="mt-2 leading-5 text-zinc-600">{post.excerpt}</p>
-                      </Link>
+                      <div key={post.id} className="grid gap-3 border-b border-zinc-100 p-4 last:border-b-0 md:grid-cols-[1fr_auto] md:items-center">
+                        <div>
+                          <p className="font-black text-zinc-950">{post.title}</p>
+                          <p className="mt-1 text-sm text-zinc-600">{post.league?.name ?? "General"} - {post.excerpt}</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <Link href={`/news/${post.slug}`} className="h-10 rounded-md border border-zinc-200 px-3 py-2 text-sm font-bold">View</Link>
+                          <Link href={`/admin?section=news&editPost=${post.id}`} className="h-10 rounded-md border border-zinc-200 px-3 py-2 text-sm font-bold">Edit</Link>
+                          <form action={deleteNewsPost}><input type="hidden" name="id" value={post.id} /><DangerButton>Delete</DangerButton></form>
+                        </div>
+                      </div>
                     ))}
-                    {dbNewsPosts.length === 0 ? <EmptyState>No league news has been published yet.</EmptyState> : null}
                   </div>
-                </div>
+                )}
+                    {dbNewsPosts.length === 0 ? <EmptyState>No league news has been published yet.</EmptyState> : null}
               </div>
             ) : null}
 
             {activeSection === "users" ? (
               <div className="grid gap-5">
                 <SectionTitle eyebrow="Access control" title="Users & Roles">
-                  Assign admin roles and connect team admins to the club they are allowed to manage.
+                  Create Supabase login users, assign roles, and connect team admins to a club.
                 </SectionTitle>
+                <form action={createAdminUser} className="grid gap-3 rounded-md bg-zinc-50 p-4">
+                  <h3 className="font-black text-zinc-950">Add new user</h3>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <input name="name" className={inputClass} placeholder="Full name" />
+                    <input name="email" type="email" className={inputClass} placeholder="Email" required />
+                    <input name="password" type="password" className={inputClass} placeholder="Temporary password" required />
+                    <select name="roleId" className={inputClass} required>
+                      <option value="">Choose role</option>
+                      {dbRoles.map((role) => <option key={role.id} value={role.id}>{roleLabels[role.name]}</option>)}
+                    </select>
+                    <select name="teamId" className={`${inputClass} md:col-span-2`}>
+                      <option value="">No assigned team</option>
+                      {dbTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+                    </select>
+                  </div>
+                  <p className="text-xs leading-5 text-zinc-500">Requires `SUPABASE_SERVICE_ROLE_KEY` in Vercel and local `.env` to create a real login account.</p>
+                  <button className={`${buttonClass} justify-self-end`}>Create user</button>
+                </form>
                 <div className="grid gap-3">
                   {dbUsers.map((user) => (
                     <form key={user.id} action={updateUserRole} className="grid gap-2 rounded-md bg-zinc-50 p-3 lg:grid-cols-[1.3fr_1fr_1fr_auto]">

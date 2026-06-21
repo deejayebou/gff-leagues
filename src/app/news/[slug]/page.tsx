@@ -28,9 +28,10 @@ export default async function NewsDetailPage({ params }: { params: Promise<{ slu
         </div>
       ) : null}
       <p className="mt-5 text-lg leading-8 text-zinc-700">{post.excerpt}</p>
-      <div className="mt-6 whitespace-pre-wrap rounded-md border border-zinc-200 bg-white p-5 text-base leading-8 text-zinc-800 shadow-sm">
-        {post.body}
-      </div>
+      <div
+        className="mt-6 rounded-md border border-zinc-200 bg-white p-5 text-base leading-8 text-zinc-800 shadow-sm [&_ol]:ml-5 [&_ol]:list-decimal [&_strong]:font-black [&_ul]:ml-5 [&_ul]:list-disc"
+        dangerouslySetInnerHTML={{ __html: post.body }}
+      />
     </article>
   );
 }
