@@ -7,10 +7,12 @@ import { permissions } from "@/lib/rbac";
 import {
   approveFixture,
   assignPlayerToTeam,
+  createFixture,
   createNewsPost,
   moveTeamToLeague,
   quickCreateRecord,
   rejectFixture,
+  submitFixtureResult,
   updateLeague,
   updatePlayer,
   updateTeam,
@@ -33,6 +35,7 @@ async function getAdminData() {
       dbUsers,
       dbRoles,
       dbNewsPosts,
+      dbVenues,
     ] = await Promise.all([
       prisma.league.findMany({ orderBy: { name: "asc" }, take: 12 }),
       prisma.team.findMany({ orderBy: { name: "asc" }, take: 12 }),
@@ -60,6 +63,7 @@ async function getAdminData() {
         orderBy: { publishedAt: "desc" },
         take: 8,
       }),
+      prisma.venue.findMany({ orderBy: { name: "asc" }, take: 24 }),
     ]);
 
     return {
@@ -73,6 +77,7 @@ async function getAdminData() {
       dbUsers,
       dbRoles,
       dbNewsPosts,
+      dbVenues,
       dbError: "",
     };
   } catch (error) {
@@ -87,6 +92,7 @@ async function getAdminData() {
       dbUsers: [],
       dbRoles: [],
       dbNewsPosts: [],
+      dbVenues: [],
       dbError: error instanceof Error ? error.message : "Could not connect to the database.",
     };
   }
@@ -110,6 +116,7 @@ export default async function AdminPage({
     dbUsers,
     dbRoles,
     dbNewsPosts,
+    dbVenues,
     dbError,
   } = await getAdminData();
   const submitted = fixtures.filter((fixture) => fixture.status === "submitted");
@@ -120,6 +127,7 @@ export default async function AdminPage({
   const canManageNews = can(currentUser, "manage_news");
   const canManageOwnTeam = can(currentUser, "manage_own_team");
   const canAssignPlayers = can(currentUser, "assign_players");
+  const canSubmitResults = can(currentUser, "submit_results");
   const modules = [
     "Create/edit leagues",
     "Create/edit seasons",
@@ -222,6 +230,61 @@ export default async function AdminPage({
       </section>
 
       <section className="mt-6 grid gap-4">
+        {(canManageFixtures || canSubmitResults || canManageAll) ? (
+        <div className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
+          <h2 className="text-lg font-bold text-zinc-950">Fixtures & Results</h2>
+          <div className="mt-3 grid gap-4 md:grid-cols-2">
+            {(canManageFixtures || canManageAll) ? (
+              <form action={createFixture} className="grid gap-2 rounded-md bg-zinc-50 p-3">
+                <p className="font-semibold text-zinc-900">Create fixture</p>
+                <select name="leagueId" className="h-11 rounded-md border border-zinc-200 px-3" required>
+                  <option value="">League</option>
+                  {dbLeagues.map((league) => <option key={league.id} value={league.id}>{league.name}</option>)}
+                </select>
+                <select name="seasonId" className="h-11 rounded-md border border-zinc-200 px-3" required>
+                  <option value="">Season</option>
+                  {dbSeasons.map((season) => <option key={season.id} value={season.id}>{season.name}</option>)}
+                </select>
+                <select name="homeTeamId" className="h-11 rounded-md border border-zinc-200 px-3" required>
+                  <option value="">Home team</option>
+                  {dbTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+                </select>
+                <select name="awayTeamId" className="h-11 rounded-md border border-zinc-200 px-3" required>
+                  <option value="">Away team</option>
+                  {dbTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+                </select>
+                <select name="venueId" className="h-11 rounded-md border border-zinc-200 px-3" required>
+                  <option value="">Venue</option>
+                  {dbVenues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name}</option>)}
+                </select>
+                <input name="kickoffAt" type="datetime-local" className="h-11 rounded-md border border-zinc-200 px-3" required />
+                <button className="h-11 rounded-md bg-zinc-950 px-4 text-sm font-bold text-white">Create fixture</button>
+              </form>
+            ) : null}
+
+            {(canSubmitResults || canManageAll) ? (
+              <form action={submitFixtureResult} className="grid gap-2 rounded-md bg-zinc-50 p-3">
+                <p className="font-semibold text-zinc-900">Submit result</p>
+                <select name="fixtureId" className="h-11 rounded-md border border-zinc-200 px-3" required>
+                  <option value="">Fixture</option>
+                  {dbFixtures.map((fixture) => (
+                    <option key={fixture.id} value={fixture.id}>
+                      {fixture.homeTeam.name} vs {fixture.awayTeam.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="grid grid-cols-2 gap-2">
+                  <input name="homeScore" type="number" min="0" className="h-11 rounded-md border border-zinc-200 px-3" placeholder="Home score" required />
+                  <input name="awayScore" type="number" min="0" className="h-11 rounded-md border border-zinc-200 px-3" placeholder="Away score" required />
+                </div>
+                <textarea name="notes" className="min-h-24 rounded-md border border-zinc-200 p-3" placeholder="Match notes, scorers, cards, substitutions" />
+                <button className="h-11 rounded-md bg-zinc-950 px-4 text-sm font-bold text-white">Submit for approval</button>
+              </form>
+            ) : null}
+          </div>
+        </div>
+        ) : null}
+
         {(canManageNews || canManageAll) ? (
         <div className="rounded-md border border-zinc-200 bg-white p-4 shadow-sm">
           <h2 className="text-lg font-bold text-zinc-950">League News</h2>

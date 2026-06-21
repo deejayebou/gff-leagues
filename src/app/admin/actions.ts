@@ -418,3 +418,91 @@ export async function createNewsPost(formData: FormData) {
   revalidatePath("/news");
   done(`Published news: ${post.title}`);
 }
+
+export async function createFixture(formData: FormData) {
+  await requirePermission("manage_fixtures");
+  const prisma = getPrisma();
+  const leagueId = value(formData, "leagueId");
+  const seasonId = value(formData, "seasonId");
+  const homeTeamId = value(formData, "homeTeamId");
+  const awayTeamId = value(formData, "awayTeamId");
+  const venueId = value(formData, "venueId");
+  const kickoffAt = value(formData, "kickoffAt");
+
+  if (!leagueId || !seasonId || !homeTeamId || !awayTeamId || !venueId || !kickoffAt) {
+    redirect("/admin?status=Fill%20out%20all%20fixture%20fields");
+  }
+
+  if (homeTeamId === awayTeamId) {
+    redirect("/admin?status=Home%20and%20away%20teams%20must%20be%20different");
+  }
+
+  const fixture = await prisma.fixture.create({
+    data: {
+      leagueId,
+      seasonId,
+      homeTeamId,
+      awayTeamId,
+      venueId,
+      kickoffAt: new Date(kickoffAt),
+      status: MatchStatus.SCHEDULED,
+    },
+    include: { homeTeam: true, awayTeam: true },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      action: "CREATE_FIXTURE",
+      entity: "Fixture",
+      entityId: fixture.id,
+      metadata: {
+        home: fixture.homeTeam.name,
+        away: fixture.awayTeam.name,
+      },
+    },
+  });
+
+  done(`Created fixture: ${fixture.homeTeam.name} vs ${fixture.awayTeam.name}`);
+}
+
+export async function submitFixtureResult(formData: FormData) {
+  await requirePermission("submit_results");
+  const prisma = getPrisma();
+  const fixtureId = value(formData, "fixtureId");
+  const homeScore = Number(value(formData, "homeScore"));
+  const awayScore = Number(value(formData, "awayScore"));
+  const notes = value(formData, "notes");
+
+  if (!fixtureId || Number.isNaN(homeScore) || Number.isNaN(awayScore)) {
+    redirect("/admin?status=Choose%20a%20fixture%20and%20enter%20both%20scores");
+  }
+
+  const fixture = await prisma.fixture.update({
+    where: { id: fixtureId },
+    data: {
+      homeScore,
+      awayScore,
+      status: MatchStatus.SUBMITTED,
+      match: {
+        upsert: {
+          create: { summary: notes || "Submitted for approval." },
+          update: { summary: notes || "Submitted for approval." },
+        },
+      },
+    },
+    include: { homeTeam: true, awayTeam: true },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      action: "SUBMIT_RESULT",
+      entity: "Fixture",
+      entityId: fixture.id,
+      metadata: {
+        score: `${fixture.homeTeam.name} ${homeScore}-${awayScore} ${fixture.awayTeam.name}`,
+      },
+    },
+  });
+
+  done(`Submitted result: ${fixture.homeTeam.name} ${homeScore}-${awayScore} ${fixture.awayTeam.name}`);
+}
